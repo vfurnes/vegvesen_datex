@@ -9,8 +9,6 @@ CONF_SITE_NAME = "site_name"
 CONF_SITE_FILTER = "site_filter"
 CONF_USE_EXISTING = "use_existing"
 
-
-DEFAULT_QUERY = "Måløybrua"
 DEFAULT_SCAN_INTERVAL = 60
 
 SITUATION_URL_DEFAULT = (
