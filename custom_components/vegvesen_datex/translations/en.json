@@ -1,0 +1,19 @@
+{
+  "config": {
+    "error": {
+      "auth": "Authentication failed. Check username/password."
+    },
+    "step": {
+      "user": {
+        "title": "Statens vegvesen DATEX",
+        "description": "Enter your DATEX credentials and a search query (e.g. a bridge name).",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "query": "Search query",
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  }
+}
