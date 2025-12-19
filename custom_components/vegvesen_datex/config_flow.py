@@ -21,7 +21,7 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             scan = int(user_input[CONF_SCAN_INTERVAL])
 
             try:
-                client = DatexClient(username, password)
+                client = DatexClient(self.hass, username, password)
                 await client.fetch_situation()  # verifiser creds
             except Exception:
                 errors["base"] = "auth"
