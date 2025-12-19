@@ -10,6 +10,7 @@
         "title": "Statens vegvesen DATEX",
         "description": "Enter your DATEX credentials.",
         "data": {
+          "use_existing": "Use saved credentials",
           "username": "Username",
           "password": "Password",
           "scan_interval": "Update interval (seconds)"
