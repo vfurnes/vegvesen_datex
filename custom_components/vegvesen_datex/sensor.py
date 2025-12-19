@@ -4,7 +4,7 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.const import UnitOfSpeed, UnitOfAngle
+from homeassistant.const import UnitOfSpeed, DEGREE
 
 from .const import DOMAIN, ATTR_MESSAGE, ATTR_MATCHED, ATTR_SOURCE
 from .coordinator import DatexCoordinator
@@ -126,7 +126,7 @@ class VegvesenDatexWindDirectionSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Vindretning"
     _attr_device_class = SensorDeviceClass.WIND_DIRECTION
-    _attr_native_unit_of_measurement = UnitOfAngle.DEGREES
+    _attr_native_unit_of_measurement = DEGREE
 
     def __init__(self, coordinator: DatexCoordinator) -> None:
         self.coordinator = coordinator
