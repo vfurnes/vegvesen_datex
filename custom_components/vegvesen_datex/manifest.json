@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "documentation": "https://github.com/vfurnes/vegvesen_datex",
   "issue_tracker": "https://github.com/vfurnes/vegvesen_datex/issues",
-  "requirements": ["httpx==0.28.1", "defusedxml==0.7.1"],
+  "requirements": ["defusedxml==0.7.1"],
   "codeowners": ["@vfurnes"],
   "config_flow": true,
   "iot_class": "cloud_polling"
