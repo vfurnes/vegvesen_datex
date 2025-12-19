@@ -8,7 +8,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .datex_client import DatexClient
-from .const import CONF_SITE_ID  # legg denne i const.py
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,9 +41,9 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 wind_ms, wind_deg = await self.client.get_wind_for_site(self.site_id)
 
             return {
-                "status": status,       # DatexResult
-                "wind_ms": wind_ms,     # float | None
-                "wind_deg": wind_deg,   # float | None
+                "status": status,
+                "wind_ms": wind_ms,
+                "wind_deg": wind_deg,
             }
         except Exception as err:
             raise UpdateFailed(str(err)) from err
