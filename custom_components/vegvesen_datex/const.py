@@ -6,6 +6,7 @@ CONF_QUERY = "query"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_SITE_ID = "site_id"
 CONF_SITE_NAME = "site_name"
+CONF_SITE_FILTER = "site_filter"
 
 DEFAULT_QUERY = "Måløybrua"
 DEFAULT_SCAN_INTERVAL = 60

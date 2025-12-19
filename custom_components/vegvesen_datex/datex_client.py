@@ -123,6 +123,8 @@ class DatexClient:
                 start = max(0, idx - 120)
                 end = min(len(text), idx + 180)
                 msg = text[start:end].strip()
+        elif q:
+            status = "åpen"
 
         return DatexResult(
             status=status,
