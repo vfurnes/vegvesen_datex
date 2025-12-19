@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-import httpx
 from defusedxml import ElementTree as DET
+
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import SITUATION_URL_DEFAULT
 
@@ -19,20 +20,20 @@ class DatexResult:
 
 
 class DatexClient:
-    def __init__(self, username: str, password: str, url: str = SITUATION_URL_DEFAULT) -> None:
+    def __init__(self, hass, username: str, password: str, url: str = SITUATION_URL_DEFAULT) -> None:
+        self._hass = hass
         self._username = username
         self._password = password
         self._url = url
 
     async def fetch_situation(self) -> bytes:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(self._url, auth=(self._username, self._password))
-            r.raise_for_status()
-            return r.content
+        session = async_get_clientsession(self._hass)
+        async with session.get(self._url, auth=(self._username, self._password), timeout=30) as resp:
+            resp.raise_for_status()
+            return await resp.read()
 
     @staticmethod
     def _flatten_text(xml_bytes: bytes) -> str:
-        # Sikker XML parsing (defusedxml)
         root = DET.fromstring(xml_bytes)
         txt = " ".join(t.strip() for t in root.itertext() if t and t.strip())
         return re.sub(r"\s+", " ", txt)
@@ -45,7 +46,6 @@ class DatexClient:
 
         matched = bool(q) and (q in low)
 
-        # Heuristikk v0.1: Finn “stengt”/“restriksjon” i hele payload hvis query matcher.
         closed_words = ("stengt", "closed", "stenging", "road closed", "bridge closed")
         restr_words = ("restriks", "restricted", "kolonne", "convoy", "høy", "high-sided", "fare for stengt", "wind")
 
@@ -62,7 +62,6 @@ class DatexClient:
             else:
                 status = "åpen"
 
-            # En liten “message”: vi tar et kort utsnitt rundt treffet om mulig
             idx = low.find(q)
             if idx >= 0:
                 start = max(0, idx - 120)
