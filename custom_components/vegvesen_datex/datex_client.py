@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+import aiohttp
+
 from defusedxml import ElementTree as DET
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -28,7 +30,11 @@ class DatexClient:
 
     async def fetch_situation(self) -> bytes:
         session = async_get_clientsession(self._hass)
-        async with session.get(self._url, auth=(self._username, self._password), timeout=30) as resp:
+        async with session.get(
+            self._url,
+            auth=aiohttp.BasicAuth(self._username, self._password),
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
             resp.raise_for_status()
             return await resp.read()
 
