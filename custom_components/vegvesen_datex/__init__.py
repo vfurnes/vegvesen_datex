@@ -16,7 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     query = entry.data[CONF_QUERY]
     scan = entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
-    client = DatexClient(username, password)
+    client = DatexClient(hass, username, password)
     coordinator = DatexCoordinator(hass, client, query, scan)
     await coordinator.async_config_entry_first_refresh()
 
