@@ -1,0 +1,19 @@
+{
+  "config": {
+    "error": {
+      "auth": "Innlogging feilet. Sjekk brukernavn/passord."
+    },
+    "step": {
+      "user": {
+        "title": "Statens vegvesen DATEX",
+        "description": "Legg inn DATEX-bruker og et søk (f.eks. Måløybrua).",
+        "data": {
+          "username": "Brukernavn",
+          "password": "Passord",
+          "query": "Søketekst",
+          "scan_interval": "Oppdateringsintervall (sekunder)"
+        }
+      }
+    }
+  }
+}
