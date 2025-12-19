@@ -1,17 +1,38 @@
 {
   "config": {
     "error": {
-      "auth": "Innlogging feilet. Sjekk brukernavn/passord."
+      "auth": "Innlogging feilet. Sjekk brukernavn/passord.",
+      "no_sites": "Ingen målesteder matchet filteret.",
+      "site_required": "Velg et målested for å fortsette."
     },
     "step": {
       "user": {
         "title": "Statens vegvesen DATEX",
-        "description": "Legg inn DATEX-bruker og et søk (f.eks. Måløybrua).",
+        "description": "Legg inn DATEX-bruker.",
         "data": {
           "username": "Brukernavn",
           "password": "Passord",
-          "query": "Søketekst",
           "scan_interval": "Oppdateringsintervall (sekunder)"
+        }
+      },
+      "site": {
+        "title": "Velg målested",
+        "description": "Filtrer og velg målestedet du vil overvåke.",
+        "data": {
+          "site_filter": "Filter (valgfritt)",
+          "site_id": "Målested"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "site": {
+        "title": "Velg målested",
+        "description": "Filtrer og velg målestedet du vil overvåke.",
+        "data": {
+          "site_filter": "Filter (valgfritt)",
+          "site_id": "Målested"
         }
       }
     }
