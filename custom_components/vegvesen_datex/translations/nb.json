@@ -10,6 +10,7 @@
         "title": "Statens vegvesen DATEX",
         "description": "Legg inn DATEX-bruker.",
         "data": {
+          "use_existing": "Bruk lagrede innloggingsdetaljer",
           "username": "Brukernavn",
           "password": "Passord",
           "scan_interval": "Oppdateringsintervall (sekunder)"
