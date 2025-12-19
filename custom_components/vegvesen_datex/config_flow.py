@@ -13,7 +13,7 @@ from .const import (
     CONF_SITE_ID,
     CONF_SITE_NAME,
     CONF_SITE_FILTER,
-    DEFAULT_QUERY,
+    CONF_USE_EXISTING,
     DEFAULT_SCAN_INTERVAL,
 )
 from .datex_client import DatexClient
@@ -23,21 +23,32 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._creds: dict[str, str] | None = None
+        self._creds: dict[str, object] | None = None
         self._site_options: dict[str, str] = {}
         super().__init__()
 
     async def async_step_user(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
 
+        existing_entry = next(iter(self._async_current_entries()), None)
+
         if user_input is not None:
-            username = user_input[CONF_USERNAME].strip()
-            password = user_input[CONF_PASSWORD]
+            use_existing = bool(user_input.get(CONF_USE_EXISTING))
+            if use_existing and existing_entry:
+                username = existing_entry.data[CONF_USERNAME]
+                password = existing_entry.data[CONF_PASSWORD]
+            else:
+                username = (user_input.get(CONF_USERNAME) or "").strip()
+                password = user_input.get(CONF_PASSWORD) or ""
             scan = int(user_input[CONF_SCAN_INTERVAL])
 
+            if not username or not password:
+                errors["base"] = "auth"
+
             try:
-                client = DatexClient(self.hass, username, password)
-                await client.fetch_situation()  # verifiser creds
+                if not errors:
+                    client = DatexClient(self.hass, username, password)
+                    await client.fetch_situation()  # verifiser creds
             except Exception:
                 errors["base"] = "auth"
 
@@ -51,8 +62,9 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
+                vol.Optional(CONF_USE_EXISTING, default=bool(existing_entry)): bool,
+                vol.Optional(CONF_USERNAME, default=""): str,
+                vol.Optional(CONF_PASSWORD, default=""): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
                     vol.Coerce(int), vol.Range(min=10, max=3600)
                 ),
@@ -81,7 +93,7 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 data = {
                     **self._creds,
-                    CONF_QUERY: site_name or DEFAULT_QUERY,
+                    CONF_QUERY: site_name,
                     CONF_SITE_ID: site_id,
                     CONF_SITE_NAME: site_name,
                 }
