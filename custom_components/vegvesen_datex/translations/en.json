@@ -1,17 +1,27 @@
 {
   "config": {
     "error": {
-      "auth": "Authentication failed. Check username/password."
+      "auth": "Authentication failed. Check username/password.",
+      "no_sites": "No measurement sites matched the filter.",
+      "site_required": "Select a measurement site to continue."
     },
     "step": {
       "user": {
         "title": "Statens vegvesen DATEX",
-        "description": "Enter your DATEX credentials and a search query (e.g. a bridge name).",
+        "description": "Enter your DATEX credentials.",
         "data": {
+          "use_existing": "Use saved credentials",
           "username": "Username",
           "password": "Password",
-          "query": "Search query",
           "scan_interval": "Update interval (seconds)"
+        }
+      },
+      "site": {
+        "title": "Select measurement site",
+        "description": "Filter and select the measurement site to monitor.",
+        "data": {
+          "site_filter": "Filter (optional)",
+          "site_id": "Measurement site"
         }
       }
     }
