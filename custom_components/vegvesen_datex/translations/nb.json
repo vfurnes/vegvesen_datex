@@ -10,23 +10,12 @@
         "title": "Statens vegvesen DATEX",
         "description": "Legg inn DATEX-bruker.",
         "data": {
+          "use_existing": "Bruk lagrede innloggingsdetaljer",
           "username": "Brukernavn",
           "password": "Passord",
           "scan_interval": "Oppdateringsintervall (sekunder)"
         }
       },
-      "site": {
-        "title": "Velg målested",
-        "description": "Filtrer og velg målestedet du vil overvåke.",
-        "data": {
-          "site_filter": "Filter (valgfritt)",
-          "site_id": "Målested"
-        }
-      }
-    }
-  },
-  "options": {
-    "step": {
       "site": {
         "title": "Velg målested",
         "description": "Filtrer og velg målestedet du vil overvåke.",

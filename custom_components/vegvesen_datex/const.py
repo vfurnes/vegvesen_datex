@@ -7,6 +7,7 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_SITE_ID = "site_id"
 CONF_SITE_NAME = "site_name"
 CONF_SITE_FILTER = "site_filter"
+CONF_USE_EXISTING = "use_existing"
 
 DEFAULT_SCAN_INTERVAL = 60
 

@@ -16,7 +16,7 @@ from .const import (
 
 @dataclass
 class DatexResult:
-    status: str               # "åpen" | "stengt" | "restriksjon" | "ukjent"
+    status: str
     is_closed: bool
     message: str | None
     matched: bool
@@ -30,9 +30,6 @@ class DatexClient:
         self._password = password
         self._url = url
 
-    # -------------------------
-    # HTTP fetchers
-    # -------------------------
     async def fetch_situation(self) -> bytes:
         session = async_get_clientsession(self._hass)
         async with session.get(
@@ -63,9 +60,6 @@ class DatexClient:
             resp.raise_for_status()
             return await resp.read()
 
-    # -------------------------
-    # Helpers / parsing
-    # -------------------------
     @staticmethod
     def _flatten_text(xml_bytes: bytes) -> str:
         root = DET.fromstring(xml_bytes)
@@ -74,7 +68,6 @@ class DatexClient:
 
     @staticmethod
     def _first_number_under(node) -> float | None:
-        """Find the first numeric text under a node (best-effort)."""
         if node is None:
             return None
         for child in node.iter():
@@ -82,9 +75,6 @@ class DatexClient:
                 return float(child.text.strip())
         return None
 
-    # -------------------------
-    # Public API
-    # -------------------------
     async def get_status_for_query(self, query: str) -> DatexResult:
         xml_bytes = await self.fetch_situation()
         text = self._flatten_text(xml_bytes)
@@ -135,14 +125,12 @@ class DatexClient:
         )
 
     async def list_sites(self, filter_text: str | None = None, limit: int = 200) -> list[tuple[str, str]]:
-        """Return a list of (site_id, site_name) filtered by name (case-insensitive)."""
         xml_bytes = await self.fetch_weather_site_table()
         root = DET.fromstring(xml_bytes)
 
         filter_l = (filter_text or "").strip().lower()
         out: list[tuple[str, str]] = []
 
-        # Typical DATEX structure: measurementSiteRecord id + measurementSiteName
         for rec in root.findall(".//{*}measurementSiteRecord"):
             site_id = rec.get("id")
             name_el = rec.find(".//{*}measurementSiteName")
@@ -160,7 +148,6 @@ class DatexClient:
         return out
 
     async def get_wind_for_site(self, site_id: str) -> tuple[float | None, float | None]:
-        """Return (wind_speed_ms, wind_dir_deg) for a given site_id, if present."""
         xml_bytes = await self.fetch_measured_weather()
         root = DET.fromstring(xml_bytes)
 
