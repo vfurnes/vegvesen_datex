@@ -13,7 +13,6 @@ from .const import (
     CONF_SITE_ID,
     CONF_SITE_NAME,
     CONF_SITE_FILTER,
-    CONF_USE_EXISTING,
     DEFAULT_SCAN_INTERVAL,
 )
 from .datex_client import DatexClient
@@ -23,23 +22,14 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._creds: dict[str, object] | None = None
-        self._site_options: dict[str, str] = {}
         super().__init__()
 
     async def async_step_user(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
 
-        existing_entry = next(iter(self._async_current_entries()), None)
-
         if user_input is not None:
-            use_existing = bool(user_input.get(CONF_USE_EXISTING))
-            if use_existing and existing_entry:
-                username = existing_entry.data[CONF_USERNAME]
-                password = existing_entry.data[CONF_PASSWORD]
-            else:
-                username = (user_input.get(CONF_USERNAME) or "").strip()
-                password = user_input.get(CONF_PASSWORD) or ""
+            username = (user_input.get(CONF_USERNAME) or "").strip()
+            password = user_input.get(CONF_PASSWORD) or ""
             scan = int(user_input[CONF_SCAN_INTERVAL])
 
             if not username or not password:
@@ -53,18 +43,21 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "auth"
 
             if not errors:
-                self._creds = {
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
-                    CONF_SCAN_INTERVAL: scan,
-                }
-                return await self.async_step_site()
+                await self.async_set_unique_id(username.lower())
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title="DATEX",
+                    data={
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_SCAN_INTERVAL: scan,
+                    },
+                )
 
         schema = vol.Schema(
             {
-                vol.Optional(CONF_USE_EXISTING, default=bool(existing_entry)): bool,
-                vol.Optional(CONF_USERNAME, default=""): str,
-                vol.Optional(CONF_PASSWORD, default=""): str,
+                vol.Required(CONF_USERNAME): str,
+                vol.Required(CONF_PASSWORD): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
                     vol.Coerce(int), vol.Range(min=10, max=3600)
                 ),
@@ -72,14 +65,23 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
+
+class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
+    def __init__(self, entry: config_entries.ConfigEntry) -> None:
+        self.entry = entry
+        self._site_options: dict[str, str] = {}
+
+    async def async_step_init(self, user_input=None) -> FlowResult:
+        return await self.async_step_site(user_input)
+
     async def async_step_site(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
-
-        if not self._creds:
-            return await self.async_step_user()
-
         filter_text = (user_input or {}).get(CONF_SITE_FILTER, "").strip()
-        client = DatexClient(self.hass, self._creds[CONF_USERNAME], self._creds[CONF_PASSWORD])
+        client = DatexClient(
+            self.hass,
+            self.entry.data[CONF_USERNAME],
+            self.entry.data[CONF_PASSWORD],
+        )
         sites = await client.list_sites(filter_text)
         self._site_options = {site_id: site_name for site_id, site_name in sites}
         if not self._site_options:
@@ -89,15 +91,17 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             site_id = user_input.get(CONF_SITE_ID)
             if site_id and site_id in self._site_options:
                 site_name = self._site_options[site_id]
-                await self.async_set_unique_id(f"{self._creds[CONF_USERNAME]}:{site_id}".lower())
-                self._abort_if_unique_id_configured()
-                data = {
-                    **self._creds,
-                    CONF_QUERY: site_name,
-                    CONF_SITE_ID: site_id,
-                    CONF_SITE_NAME: site_name,
-                }
-                return self.async_create_entry(title=f"DATEX: {site_name}", data=data)
+                self.hass.config_entries.async_update_entry(
+                    self.entry,
+                    data={
+                        **self.entry.data,
+                        CONF_QUERY: site_name,
+                        CONF_SITE_ID: site_id,
+                        CONF_SITE_NAME: site_name,
+                    },
+                )
+                await self.hass.config_entries.async_reload(self.entry.entry_id)
+                return self.async_create_entry(title="", data={})
             if not errors:
                 errors["base"] = "site_required"
 
@@ -108,3 +112,7 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="site", data_schema=schema, errors=errors)
+
+
+async def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+    return VegvesenDatexOptionsFlowHandler(config_entry)

@@ -21,7 +21,7 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
-    query = entry.data[CONF_QUERY]
+    query = entry.data.get(CONF_QUERY, "")
     site_id = entry.data.get(CONF_SITE_ID)
     scan = entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
