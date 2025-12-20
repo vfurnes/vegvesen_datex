@@ -2,10 +2,36 @@
   "config": {
     "error": {
       "auth": "Innlogging feilet. Sjekk brukernavn/passord.",
+      "segment_required": "Legg inn et veistykke for å fortsette.",
+      "fetch_failed": "Kunne ikke hente data fra DATEX.",
       "no_sites": "Ingen målesteder matchet filteret.",
-      "site_required": "Velg et målested for å fortsette."
+      "site_required": "Velg et målested for å fortsette.",
+      "entities_required": "Velg minst én entitet."
     },
     "step": {
+      "init": {
+        "title": "Legg til oppføring",
+        "description": "Eksisterende veistykker:\\n{segment_summary}",
+        "menu_options": {
+          "add_segment": "Legg til veistykke",
+          "manage_segments": "Vis oversikt"
+        }
+      },
+      "manage_segments": {
+        "title": "Oversikt",
+        "description": "Eksisterende veistykker:\\n{segment_summary}",
+        "data": {
+          "add_another": "Legg til et nytt veistykke"
+        }
+      },
+      "add_segment": {
+        "title": "Nytt veistykke",
+        "description": "Legg inn veistykke (søkestreng) og valgfritt navn.",
+        "data": {
+          "segment_query": "Veistykke (søkestreng)",
+          "segment_name": "Visningsnavn (valgfritt)"
+        }
+      },
       "user": {
         "title": "Statens vegvesen DATEX",
         "description": "Legg inn DATEX-bruker.",
@@ -16,9 +42,16 @@
           "scan_interval": "Oppdateringsintervall (sekunder)"
         }
       },
+      "entities": {
+        "title": "Velg entiteter",
+        "description": "Velg hvilke entiteter som skal opprettes for veistykket.",
+        "data": {
+          "segment_entities": "Entiteter"
+        }
+      },
       "site": {
         "title": "Velg målested",
-        "description": "Filtrer og velg målestedet du vil overvåke.",
+        "description": "Filtrer og velg målestedet du vil overvåke (valgfritt).",
         "data": {
           "site_filter": "Filter (valgfritt)",
           "site_id": "Målested"
