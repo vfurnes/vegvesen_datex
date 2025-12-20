@@ -2,10 +2,36 @@
   "config": {
     "error": {
       "auth": "Authentication failed. Check username/password.",
+      "segment_required": "Enter a road segment to continue.",
+      "fetch_failed": "Failed to fetch data from DATEX.",
       "no_sites": "No measurement sites matched the filter.",
-      "site_required": "Select a measurement site to continue."
+      "site_required": "Select a measurement site to continue.",
+      "entities_required": "Select at least one entity."
     },
     "step": {
+      "init": {
+        "title": "Add entry",
+        "description": "Existing segments:\\n{segment_summary}",
+        "menu_options": {
+          "add_segment": "Add segment",
+          "manage_segments": "View overview"
+        }
+      },
+      "manage_segments": {
+        "title": "Overview",
+        "description": "Existing segments:\\n{segment_summary}",
+        "data": {
+          "add_another": "Add another segment"
+        }
+      },
+      "add_segment": {
+        "title": "New segment",
+        "description": "Enter the road segment (search string) and an optional name.",
+        "data": {
+          "segment_query": "Segment (search string)",
+          "segment_name": "Display name (optional)"
+        }
+      },
       "user": {
         "title": "Statens vegvesen DATEX",
         "description": "Enter your DATEX credentials.",
@@ -16,9 +42,16 @@
           "scan_interval": "Update interval (seconds)"
         }
       },
+      "entities": {
+        "title": "Select entities",
+        "description": "Choose which entities to create for this segment.",
+        "data": {
+          "segment_entities": "Entities"
+        }
+      },
       "site": {
         "title": "Select measurement site",
-        "description": "Filter and select the measurement site to monitor.",
+        "description": "Filter and select the measurement site to monitor (optional).",
         "data": {
           "site_filter": "Filter (optional)",
           "site_id": "Measurement site"
