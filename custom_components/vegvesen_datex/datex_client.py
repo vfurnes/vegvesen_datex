@@ -36,40 +36,36 @@ class DatexClient:
         self._password = password
         self._url = url
 
-    async def fetch_situation(self) -> bytes:
+    async def _fetch(self, url: str, timeout_s: int = 60) -> bytes:
         session = async_get_clientsession(self._hass)
         async with session.get(
-            self._url,
+            url,
             auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=30),
+            timeout=aiohttp.ClientTimeout(total=timeout_s),
         ) as resp:
             resp.raise_for_status()
             return await resp.read()
+
+    async def fetch_situation(self) -> bytes:
+        return await self._fetch(self._url, timeout_s=60)
 
     async def fetch_weather_site_table(self) -> bytes:
-        session = async_get_clientsession(self._hass)
-        async with session.get(
-            WEATHER_SITE_TABLE_URL_DEFAULT,
-            auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=60),
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.read()
+        return await self._fetch(WEATHER_SITE_TABLE_URL_DEFAULT, timeout_s=60)
 
     async def fetch_measured_weather(self) -> bytes:
-        session = async_get_clientsession(self._hass)
-        async with session.get(
-            MEASURED_WEATHER_URL_DEFAULT,
-            auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=60),
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.read()
+        return await self._fetch(MEASURED_WEATHER_URL_DEFAULT, timeout_s=60)
 
     @staticmethod
     def _flatten_text(xml_bytes: bytes) -> str:
         root = DET.fromstring(xml_bytes)
         txt = " ".join(t.strip() for t in root.itertext() if t and t.strip())
+        return re.sub(r"\s+", " ", txt)
+
+    @staticmethod
+    def _flatten_node_text(node) -> str:
+        if node is None:
+            return ""
+        txt = " ".join(t.strip() for t in node.itertext() if t and t.strip())
         return re.sub(r"\s+", " ", txt)
 
     @staticmethod
@@ -81,13 +77,8 @@ class DatexClient:
                 return float(child.text.strip())
         return None
 
-    async def get_status_for_query(self, query: str) -> DatexResult:
-        xml_bytes = await self.fetch_situation()
-        text = self._flatten_text(xml_bytes)
-        low = text.lower()
-        q = (query or "").strip().lower()
-
-        matched = bool(q) and (q in low)
+    def _parse_status_text(self, text: str, matched: bool) -> DatexResult:
+        low = (text or "").lower()
 
         closed_words = ("stengt", "closed", "stenging", "road closed", "bridge closed")
         restr_words = (
@@ -114,13 +105,10 @@ class DatexClient:
             else:
                 status = "åpen"
 
-            idx = low.find(q)
-            if idx >= 0:
-                start = max(0, idx - 120)
-                end = min(len(text), idx + 180)
-                msg = text[start:end].strip()
-        elif q:
-            status = "åpen"
+            # Keep a readable snippet
+            msg = text[:400].strip() if text else None
+        else:
+            status = "åpen"  # if we asked for something and didn't match, treat as open
 
         return DatexResult(
             status=status,
@@ -130,10 +118,89 @@ class DatexClient:
             source=self._url,
         )
 
+    async def list_situations(self, filter_text: str | None = None, limit: int = 500) -> list[tuple[str, str]]:
+        """Return [(record_id, label), ...] from GetSituation.
+
+        Filter uses case-insensitive 'contains' on label and id.
+        """
+        xml_bytes = await self.fetch_situation()
+        root = DET.fromstring(xml_bytes)
+
+        flt = (filter_text or "").strip().lower()
+        out: list[tuple[str, str]] = []
+
+        for rec in root.findall(".//{*}situationRecord"):
+            rec_id = rec.get("id")
+            if not rec_id:
+                continue
+
+            # Best-effort label
+            loc = rec.findtext(".//{*}locationName") or ""
+            comment = rec.findtext(".//{*}comment") or ""
+            label = (loc or comment or rec_id).strip()
+
+            if comment and comment.strip() and comment.strip() not in label:
+                label = f"{label} – {comment.strip()}".strip(" –")
+
+            if flt and (flt not in label.lower()) and (flt not in rec_id.lower()):
+                continue
+
+            out.append((rec_id, label))
+
+            if len(out) >= limit:
+                break
+
+        out.sort(key=lambda x: x[1].lower())
+        return out
+
+    async def get_status_for_record(self, record_id: str) -> DatexResult:
+        """Extract status from one situationRecord by id."""
+        xml_bytes = await self.fetch_situation()
+        root = DET.fromstring(xml_bytes)
+
+        rec = root.find(f".//{{*}}situationRecord[@id='{record_id}']")
+        if rec is None:
+            return DatexResult(
+                status="ukjent",
+                is_closed=False,
+                message=None,
+                matched=False,
+                source=self._url,
+            )
+
+        text = self._flatten_node_text(rec)
+        return self._parse_status_text(text=text, matched=True)
+
+    async def get_status_for_query(self, query: str) -> DatexResult:
+        """Legacy: free-text match in whole GetSituation document."""
+        xml_bytes = await self.fetch_situation()
+        text = self._flatten_text(xml_bytes)
+        low = text.lower()
+        q = (query or "").strip().lower()
+
+        matched = bool(q) and (q in low)
+
+        if matched:
+            # center snippet around match
+            idx = low.find(q)
+            start = max(0, idx - 150)
+            end = min(len(text), idx + 250)
+            snippet = text[start:end].strip()
+            return self._parse_status_text(text=snippet, matched=True)
+
+        # If not matched, treat as open
+        return DatexResult(
+            status="åpen" if q else "ukjent",
+            is_closed=False,
+            message=None,
+            matched=False,
+            source=self._url,
+        )
+
     async def list_sites(self, filter_text: str | None = None, limit: int = 500) -> list[tuple[str, str]]:
         """Return [(site_id, site_name), ...] from GetMeasurementWeatherSiteTable.
 
-        Filter uses case-insensitive 'contains' on site_name.
+        Filter uses case-insensitive 'contains' on site_name (and site_id).
         """
         xml_bytes = await self.fetch_weather_site_table()
         root = DET.fromstring(xml_bytes)
@@ -152,6 +219,7 @@ class DatexClient:
             if name_el is not None:
                 candidates = name_el.findall(".//{*}value")
                 if candidates:
+
                     def score(v):
                         lang = (v.get("lang") or "").lower()
                         if lang in ("nob", "nb", "no"):
@@ -159,6 +227,7 @@ class DatexClient:
                         if lang == "en":
                             return 1
                         return 2
+
                     best = sorted(candidates, key=score)[0]
                     if best.text:
                         name = best.text.strip()
@@ -186,13 +255,11 @@ class DatexClient:
         xml_bytes = await self.fetch_measured_weather()
         root = DET.fromstring(xml_bytes)
 
-        # Find siteMeasurements with matching reference id
         for sm in root.findall(".//{*}siteMeasurements"):
             ref = sm.find(".//{*}measurementSiteReference")
             if ref is None or (ref.get("id") or "").strip() != (site_id or "").strip():
                 continue
 
-            # Try to detect common tags. (We keep it resilient: if tag not present -> None)
             wind_speed = self._first_number_under(sm.find(".//{*}windSpeed"))
             wind_dir = self._first_number_under(sm.find(".//{*}windDirectionBearing"))
 
@@ -201,7 +268,7 @@ class DatexClient:
             pressure = self._first_number_under(sm.find(".//{*}atmosphericPressure"))
             precip = self._first_number_under(sm.find(".//{*}precipitationIntensity"))
 
-            out = {
+            return {
                 ENTITY_WIND_SPEED: wind_speed,
                 ENTITY_WIND_DIRECTION: wind_dir,
                 ENTITY_TEMPERATURE: temp,
@@ -209,8 +276,5 @@ class DatexClient:
                 ENTITY_PRESSURE: pressure,
                 ENTITY_PRECIP_INTENSITY: precip,
             }
-
-            # Remove keys that are all None? Keep them; options flow will only display present.
-            return out
 
         return {}

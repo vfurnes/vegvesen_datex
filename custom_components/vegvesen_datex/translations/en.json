@@ -1,12 +1,12 @@
 {
   "config": {
     "error": {
-      "auth": "Authentication failed. Check username/password."
+      "auth": "Login failed. Check username/password."
     },
     "step": {
       "user": {
-        "title": "Statens vegvesen DATEX",
-        "description": "Enter your DATEX credentials.",
+        "title": "Norwegian Public Roads Administration DATEX",
+        "description": "Enter DATEX credentials.",
         "data": {
           "username": "Username",
           "password": "Password",
@@ -17,45 +17,46 @@
   },
   "options": {
     "error": {
-      "segment_required": "Enter a road/bridge search string to continue.",
-      "fetch_failed": "Failed to fetch data from DATEX.",
-      "no_sites": "No measurement sites matched the filter.",
-      "site_required": "Select a measurement site to continue.",
+      "segment_required": "Please enter a segment query to continue.",
+      "fetch_failed": "Could not fetch data from DATEX.",
+      "no_sites": "No matches. Try another filter.",
+      "site_required": "Select an item to continue.",
       "entities_required": "Select at least one entity."
     },
     "step": {
       "init": {
         "title": "Options",
-        "description": "Existing entries:\\n{segment_summary}",
+        "description": "Existing items:\\n{segment_summary}",
         "menu_options": {
-          "add_situation": "Add road/bridge (situation)",
-          "add_weather": "Add measurement site (weather)",
-          "manage_segments": "Overview"
+          "add_situation": "Add road segment (status)",
+          "add_weather": "Add weather station (weather data)",
+          "edit_remove": "Edit / remove existing"
         }
       },
-      "manage_segments": {
-        "title": "Overview",
-        "description": "Existing entries:\\n{segment_summary}"
+      "edit_remove": {
+        "title": "Edit / remove",
+        "description": "Select an item and an action.\\n\\nExisting items:\\n{segment_summary}"
       },
       "add_situation": {
-        "title": "New road/bridge",
-        "description": "Enter the road/bridge (search string) and an optional name.",
+        "title": "Select road segment",
+        "description": "Filter and select a road segment (DATEX situationRecord).",
         "data": {
-          "segment_query": "Road/bridge (search string)",
+          "situation_filter": "Filter / search (optional)",
+          "situation_id": "Road segment",
           "segment_name": "Display name (optional)"
         }
       },
       "site": {
-        "title": "Select measurement site",
-        "description": "Filter and select the weather measurement site you want to monitor.",
+        "title": "Select weather station",
+        "description": "Filter and select the station you want to monitor.",
         "data": {
-          "site_filter": "Filter (optional)",
-          "site_id": "Measurement site"
+          "site_filter": "Filter / search (optional)",
+          "site_id": "Station"
         }
       },
       "entities": {
         "title": "Select entities",
-        "description": "Choose which entities to create for this entry.",
+        "description": "Choose which entities to create for this item.",
         "data": {
           "segment_entities": "Entities"
         }

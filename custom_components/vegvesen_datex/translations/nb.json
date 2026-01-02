@@ -19,8 +19,8 @@
     "error": {
       "segment_required": "Legg inn veistykke/bru (søkestreng) for å fortsette.",
       "fetch_failed": "Kunne ikke hente data fra DATEX.",
-      "no_sites": "Ingen målesteder matchet filteret.",
-      "site_required": "Velg et målested for å fortsette.",
+      "no_sites": "Ingen treff. Prøv et annet filter.",
+      "site_required": "Velg en oppføring for å fortsette.",
       "entities_required": "Velg minst én entitet."
     },
     "step": {
@@ -28,29 +28,30 @@
         "title": "Alternativer",
         "description": "Eksisterende oppføringer:\\n{segment_summary}",
         "menu_options": {
-          "add_situation": "Legg til veistykke/bru (status)",
-          "add_weather": "Legg til målested (værdata)",
-          "manage_segments": "Vis oversikt"
+          "add_situation": "Legg til veistykke/strekning (status)",
+          "add_weather": "Legg til målestasjon (værdata)",
+          "edit_remove": "Rediger / fjern eksisterende"
         }
       },
-      "manage_segments": {
-        "title": "Oversikt",
-        "description": "Eksisterende oppføringer:\\n{segment_summary}"
+      "edit_remove": {
+        "title": "Rediger / fjern",
+        "description": "Velg en oppføring og handling.\\n\\nEksisterende oppføringer:\\n{segment_summary}"
       },
       "add_situation": {
-        "title": "Nytt veistykke/bru",
-        "description": "Legg inn veistykke/bru (søkestreng) og valgfritt navn.",
+        "title": "Velg veistykke/strekning",
+        "description": "Filtrer og velg veistykke/strekning (DATEX situationRecord).",
         "data": {
-          "segment_query": "Veistykke/bru (søkestreng)",
+          "situation_filter": "Filter / søk (valgfritt)",
+          "situation_id": "Veistykke/strekning",
           "segment_name": "Visningsnavn (valgfritt)"
         }
       },
       "site": {
-        "title": "Velg målested",
-        "description": "Filtrer og velg vær-målestedet du vil overvåke.",
+        "title": "Velg målestasjon",
+        "description": "Filtrer og velg vær-målestasjonen du vil overvåke.",
         "data": {
-          "site_filter": "Filter (valgfritt)",
-          "site_id": "Målested"
+          "site_filter": "Filter / søk (valgfritt)",
+          "site_id": "Målestasjon"
         }
       },
       "entities": {
