@@ -201,7 +201,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         try:
             available = await self._get_available_entities()
-        except Exception:
+        except Exception as err:
             available = {"options": {}, "defaults": []}
             errors["base"] = "fetch_failed"
 
@@ -217,12 +217,14 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_SEGMENT_ENTITIES, default=available["defaults"]): vol.MultiSelect(
-                    available["options"]
-                )
+                vol.Required(
+                    CONF_SEGMENT_ENTITIES,
+                    default=available.get("defaults", []),
+                ): vol.MultiSelect(available.get("options", {}))
             }
         )
         return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+
 
     async def _get_available_entities(self) -> dict[str, list[str] | dict[str, str]]:
         client = DatexClient(
