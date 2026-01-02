@@ -89,7 +89,7 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
-    async def async_get_options_flow(
+    def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         return VegvesenDatexOptionsFlowHandler(config_entry)
