@@ -2,59 +2,56 @@
   "config": {
     "error": {
       "auth": "Authentication failed. Check username/password.",
-      "segment_required": "Enter a road segment to continue.",
+      "segment_required": "Enter a road/bridge search string to continue.",
       "fetch_failed": "Failed to fetch data from DATEX.",
       "no_sites": "No measurement sites matched the filter.",
       "site_required": "Select a measurement site to continue.",
       "entities_required": "Select at least one entity."
     },
     "step": {
-      "init": {
-        "title": "Add entry",
-        "description": "Existing segments:\\n{segment_summary}",
-        "menu_options": {
-          "add_segment": "Add segment",
-          "manage_segments": "View overview"
-        }
-      },
-      "manage_segments": {
-        "title": "Overview",
-        "description": "Existing segments:\\n{segment_summary}",
-        "data": {
-          "add_another": "Add another segment"
-        }
-      },
-      "add_segment": {
-        "title": "New segment",
-        "description": "Enter the road segment (search string) and an optional name.",
-        "data": {
-          "segment_query": "Segment (search string)",
-          "segment_name": "Display name (optional)"
-        }
-      },
       "user": {
         "title": "Statens vegvesen DATEX",
         "description": "Enter your DATEX credentials.",
         "data": {
-          "use_existing": "Use saved credentials",
           "username": "Username",
           "password": "Password",
           "scan_interval": "Update interval (seconds)"
         }
       },
-      "entities": {
-        "title": "Select entities",
-        "description": "Choose which entities to create for this segment.",
+      "init": {
+        "title": "Options",
+        "description": "Existing entries:\\n{segment_summary}",
+        "menu_options": {
+          "add_situation": "Add road/bridge (situation)",
+          "add_weather": "Add measurement site (weather)",
+          "manage_segments": "Overview"
+        }
+      },
+      "manage_segments": {
+        "title": "Overview",
+        "description": "Existing entries:\\n{segment_summary}"
+      },
+      "add_situation": {
+        "title": "New road/bridge",
+        "description": "Enter the road/bridge (search string) and an optional name.",
         "data": {
-          "segment_entities": "Entities"
+          "segment_query": "Road/bridge (search string)",
+          "segment_name": "Display name (optional)"
         }
       },
       "site": {
         "title": "Select measurement site",
-        "description": "Filter and select the measurement site to monitor (optional).",
+        "description": "Filter and select the weather measurement site you want to monitor.",
         "data": {
           "site_filter": "Filter (optional)",
           "site_id": "Measurement site"
+        }
+      },
+      "entities": {
+        "title": "Select entities",
+        "description": "Choose which entities to create for this entry.",
+        "data": {
+          "segment_entities": "Entities"
         }
       }
     }

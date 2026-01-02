@@ -7,7 +7,14 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_SEGMENT_ID, CONF_SEGMENT_QUERY, CONF_SITE_ID
+from .const import (
+    CONF_ITEM_TYPE,
+    TYPE_SITUATION,
+    TYPE_WEATHER,
+    CONF_SEGMENT_ID,
+    CONF_SEGMENT_QUERY,
+    CONF_SITE_ID,
+)
 from .datex_client import DatexClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,24 +40,25 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             data: dict[str, Any] = {}
-            for segment in self.segments:
-                segment_id = segment.get(CONF_SEGMENT_ID)
-                query = segment.get(CONF_SEGMENT_QUERY) or ""
-                site_id = segment.get(CONF_SITE_ID)
-                if not segment_id:
+            for item in self.segments:
+                item_id = item.get(CONF_SEGMENT_ID)
+                item_type = item.get(CONF_ITEM_TYPE) or TYPE_SITUATION
+                if not item_id:
                     continue
 
-                status = await self.client.get_status_for_query(query)
-                wind_ms = None
-                wind_deg = None
-                if site_id:
-                    wind_ms, wind_deg = await self.client.get_wind_for_site(site_id)
+                if item_type == TYPE_SITUATION:
+                    query = item.get(CONF_SEGMENT_QUERY) or ""
+                    status = await self.client.get_status_for_query(query)
+                    data[item_id] = {"status": status}
+                    continue
 
-                data[segment_id] = {
-                    "status": status,
-                    "wind_ms": wind_ms,
-                    "wind_deg": wind_deg,
-                }
+                if item_type == TYPE_WEATHER:
+                    site_id = item.get(CONF_SITE_ID)
+                    measurements = {}
+                    if site_id:
+                        measurements = await self.client.get_measurements_for_site(site_id)
+                    data[item_id] = {"weather": measurements}
+                    continue
 
             return data
         except Exception as err:

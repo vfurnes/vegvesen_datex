@@ -11,6 +11,12 @@ from .const import (
     SITUATION_URL_DEFAULT,
     WEATHER_SITE_TABLE_URL_DEFAULT,
     MEASURED_WEATHER_URL_DEFAULT,
+    ENTITY_WIND_SPEED,
+    ENTITY_WIND_DIRECTION,
+    ENTITY_TEMPERATURE,
+    ENTITY_HUMIDITY,
+    ENTITY_PRESSURE,
+    ENTITY_PRECIP_INTENSITY,
 )
 
 
@@ -127,8 +133,7 @@ class DatexClient:
     async def list_sites(self, filter_text: str | None = None, limit: int = 500) -> list[tuple[str, str]]:
         """Return [(site_id, site_name), ...] from GetMeasurementWeatherSiteTable.
 
-        The v3.1 response uses <measurementSiteTable><measurementSite ...> (not measurementSiteRecord),
-        and the name is typically under measurementSiteName/values/value (lang="nob" or "en").
+        Filter uses case-insensitive 'contains' on site_name.
         """
         xml_bytes = await self.fetch_weather_site_table()
         root = DET.fromstring(xml_bytes)
@@ -141,11 +146,10 @@ class DatexClient:
             if not site_id:
                 continue
 
-            # Try to pick a sensible display name
+            # pick display name
             name: str | None = None
             name_el = site.find(".//{*}measurementSiteName")
             if name_el is not None:
-                # Prefer Norwegian (nob/nb/no), then English, then first available
                 candidates = name_el.findall(".//{*}value")
                 if candidates:
                     def score(v):
@@ -160,7 +164,6 @@ class DatexClient:
                         name = best.text.strip()
 
             if not name:
-                # Fallbacks used in some payloads
                 txt = site.findtext(".//{*}measurementSiteName")
                 if txt:
                     name = txt.strip()
@@ -168,7 +171,7 @@ class DatexClient:
             if not name:
                 continue
 
-            if filter_l and filter_l not in name.lower():
+            if filter_l and filter_l not in name.lower() and filter_l not in site_id.lower():
                 continue
 
             out.append((site_id, name))
@@ -178,20 +181,36 @@ class DatexClient:
         out.sort(key=lambda x: x[1].lower())
         return out
 
-async def get_wind_for_site(self, site_id: str) -> tuple[float | None, float | None]:
+    async def get_measurements_for_site(self, site_id: str) -> dict[str, float | None]:
+        """Return a dict of detected measurements for a site_id."""
         xml_bytes = await self.fetch_measured_weather()
         root = DET.fromstring(xml_bytes)
 
+        # Find siteMeasurements with matching reference id
         for sm in root.findall(".//{*}siteMeasurements"):
             ref = sm.find(".//{*}measurementSiteReference")
-            if ref is None or ref.get("id") != site_id:
+            if ref is None or (ref.get("id") or "").strip() != (site_id or "").strip():
                 continue
 
-            ws = sm.find(".//{*}windSpeed")
-            wd = sm.find(".//{*}windDirectionBearing")
+            # Try to detect common tags. (We keep it resilient: if tag not present -> None)
+            wind_speed = self._first_number_under(sm.find(".//{*}windSpeed"))
+            wind_dir = self._first_number_under(sm.find(".//{*}windDirectionBearing"))
 
-            wind_ms = self._first_number_under(ws)
-            wind_deg = self._first_number_under(wd)
-            return wind_ms, wind_deg
+            temp = self._first_number_under(sm.find(".//{*}airTemperature"))
+            rh = self._first_number_under(sm.find(".//{*}relativeHumidity"))
+            pressure = self._first_number_under(sm.find(".//{*}atmosphericPressure"))
+            precip = self._first_number_under(sm.find(".//{*}precipitationIntensity"))
 
-        return None, None
+            out = {
+                ENTITY_WIND_SPEED: wind_speed,
+                ENTITY_WIND_DIRECTION: wind_dir,
+                ENTITY_TEMPERATURE: temp,
+                ENTITY_HUMIDITY: rh,
+                ENTITY_PRESSURE: pressure,
+                ENTITY_PRECIP_INTENSITY: precip,
+            }
+
+            # Remove keys that are all None? Keep them; options flow will only display present.
+            return out
+
+        return {}

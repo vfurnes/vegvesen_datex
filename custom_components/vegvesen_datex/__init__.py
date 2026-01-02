@@ -8,9 +8,12 @@ from .const import (
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
-    CONF_QUERY,
-    CONF_SITE_ID,
+    CONF_QUERY,  # legacy
+    CONF_SITE_ID,  # legacy
     CONF_SEGMENTS,
+    CONF_ITEM_TYPE,
+    TYPE_SITUATION,
+    TYPE_WEATHER,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
@@ -36,15 +39,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         scan = DEFAULT_SCAN_INTERVAL
 
     client = DatexClient(hass, username, password)
-    segments = _get_segments(entry)
-    coordinator = DatexCoordinator(hass, client, segments, scan)
+
+    items = _get_items(entry)
+    coordinator = DatexCoordinator(hass, client, items, scan)
     coordinator.config_entry_id = entry.entry_id
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "segments": segments,
+        "segments": items,
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -58,11 +62,23 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-def _get_segments(entry: ConfigEntry) -> list[dict[str, str | list[str] | None]]:
-    segments = entry.options.get(CONF_SEGMENTS)
-    if segments:
-        return segments
+def _get_items(entry: ConfigEntry) -> list[dict]:
+    """Read items from options (preferred). Keep compatibility with legacy data fields."""
+    items = entry.options.get(CONF_SEGMENTS)
+    if items:
+        # Ensure type for legacy items
+        out = []
+        for it in items:
+            if CONF_ITEM_TYPE not in it:
+                # Legacy “segment” => situation
+                if it.get(CONF_SEGMENT_QUERY):
+                    it = {**it, CONF_ITEM_TYPE: TYPE_SITUATION}
+                else:
+                    it = {**it, CONF_ITEM_TYPE: TYPE_SITUATION}
+            out.append(it)
+        return out
 
+    # Legacy: single query stored in entry.data
     query = entry.data.get(CONF_QUERY)
     if not query:
         return []
@@ -72,12 +88,13 @@ def _get_segments(entry: ConfigEntry) -> list[dict[str, str | list[str] | None]]
     if site_id:
         entities.extend([ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION])
 
+    # Store as a “situation” item
     return [
         {
+            CONF_ITEM_TYPE: TYPE_SITUATION,
             CONF_SEGMENT_ID: entry.entry_id,
             CONF_SEGMENT_NAME: query,
             CONF_SEGMENT_QUERY: query,
             CONF_SEGMENT_ENTITIES: entities,
-            CONF_SITE_ID: site_id,
         }
     ]
