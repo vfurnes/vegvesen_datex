@@ -17,7 +17,6 @@
   },
   "options": {
     "error": {
-      "segment_required": "Legg inn veistykke/bru (søkestreng) for å fortsette.",
       "fetch_failed": "Kunne ikke hente data fra DATEX.",
       "no_sites": "Ingen treff. Prøv et annet filter.",
       "site_required": "Velg en oppføring for å fortsette.",
@@ -26,7 +25,7 @@
     "step": {
       "init": {
         "title": "Alternativer",
-        "description": "Eksisterende oppføringer:\\n{segment_summary}",
+        "description": "Eksisterende oppføringer:\n{segment_summary}",
         "menu_options": {
           "add_situation": "Legg til veistykke/strekning (status)",
           "add_weather": "Legg til målestasjon (værdata)",
@@ -35,7 +34,7 @@
       },
       "edit_remove": {
         "title": "Rediger / fjern",
-        "description": "Velg en oppføring og handling.\\n\\nEksisterende oppføringer:\\n{segment_summary}"
+        "description": "Velg en oppføring og handling.\n\nEksisterende oppføringer:\n{segment_summary}"
       },
       "add_situation": {
         "title": "Velg veistykke/strekning",
