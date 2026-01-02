@@ -93,6 +93,116 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
+    async def async_step_add_segment(self, user_input=None) -> FlowResult:
+        """Step 2: enter the road segment query and optional display name."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._segment_query = (user_input.get(CONF_SEGMENT_QUERY) or "").strip()
+            self._segment_name = (user_input.get(CONF_SEGMENT_NAME) or "").strip()
+
+            if not self._segment_query:
+                errors["base"] = "segment_required"
+            else:
+                if not self._segment_name:
+                    self._segment_name = self._segment_query
+                return await self.async_step_site()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SEGMENT_QUERY): str,
+                vol.Optional(CONF_SEGMENT_NAME): str,
+            }
+        )
+        return self.async_show_form(step_id="add_segment", data_schema=schema, errors=errors)
+
+    async def async_step_site(self, user_input=None) -> FlowResult:
+        """Step 3: list and select measurement site (optional)."""
+        errors: dict[str, str] = {}
+
+        filter_text = (user_input or {}).get(CONF_SITE_FILTER, "").strip()
+
+        client = DatexClient(self.hass, self._username or "", self._password or "")
+        sites = await client.list_sites(filter_text)
+        # sites = list[tuple[site_id, site_name]]
+        self._site_options = {site_id: site_name for site_id, site_name in sites}
+
+        if user_input is not None:
+            site_id = user_input.get(CONF_SITE_ID)
+            if site_id and site_id not in self._site_options:
+                errors["base"] = "site_required"
+            else:
+                self._segment_site_id = site_id or None
+                self._segment_site_name = self._site_options.get(site_id) if site_id else None
+                return await self.async_step_entities()
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_SITE_FILTER, default=filter_text): str,
+                vol.Optional(CONF_SITE_ID): vol.In(self._site_options),
+            }
+        )
+        return self.async_show_form(step_id="site", data_schema=schema, errors=errors)
+
+    async def async_step_entities(self, user_input=None) -> FlowResult:
+        """Step 4: select which entities to create for this segment."""
+        errors: dict[str, str] = {}
+
+        available = await self._get_available_entities()
+
+        if user_input is not None:
+            entities = user_input.get(CONF_SEGMENT_ENTITIES) or []
+            if not entities:
+                errors["base"] = "entities_required"
+            else:
+                self._segment_entities = list(entities)
+                return self._create_entry_with_segment()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SEGMENT_ENTITIES): vol.MultiSelect(
+                    available["options"]
+                ),
+            }
+        )
+        return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+
+    def _create_entry_with_segment(self) -> FlowResult:
+        """Create config entry and store segment in options."""
+        # One initial segment
+        segments = [
+            {
+                CONF_SEGMENT_ID: "seg_1",
+                CONF_SEGMENT_NAME: self._segment_name,
+                CONF_SEGMENT_QUERY: self._segment_query,
+                CONF_SEGMENT_ENTITIES: self._segment_entities,
+                CONF_SITE_ID: self._segment_site_id,
+                CONF_SITE_NAME: self._segment_site_name,
+            }
+        ]
+
+        return self.async_create_entry(
+            title="DATEX",
+            data={
+                CONF_USERNAME: self._username,
+                CONF_PASSWORD: self._password,
+                CONF_SCAN_INTERVAL: self._scan_interval,
+            },
+            options={CONF_SEGMENTS: segments},
+        )
+
+    async def _get_available_entities(self) -> dict[str, dict[str, str]]:
+        """Build entity choices with a tiny live preview based on the query."""
+        client = DatexClient(self.hass, self._username or "", self._password or "")
+        status = await client.get_status_for_query(self._segment_query or "")
+        options = {
+            ENTITY_STATUS: f"Status (sist: {status.status})",
+            ENTITY_MESSAGE: "Hendelse",
+            ENTITY_CLOSED: f"Stengt (sist: {'ja' if status.is_closed else 'nei'})",
+            ENTITY_WIND: "Vind (hvis tilgjengelig)",
+        }
+        return {"options": options}
+
 
 # -----------------------
 # Options flow (after install)
