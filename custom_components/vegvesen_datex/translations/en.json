@@ -17,7 +17,6 @@
   },
   "options": {
     "error": {
-      "segment_required": "Please enter a segment query to continue.",
       "fetch_failed": "Could not fetch data from DATEX.",
       "no_sites": "No matches. Try another filter.",
       "site_required": "Select an item to continue.",
@@ -26,7 +25,7 @@
     "step": {
       "init": {
         "title": "Options",
-        "description": "Existing items:\\n{segment_summary}",
+        "description": "Existing items:\n{segment_summary}",
         "menu_options": {
           "add_situation": "Add road segment (status)",
           "add_weather": "Add weather station (weather data)",
@@ -35,7 +34,7 @@
       },
       "edit_remove": {
         "title": "Edit / remove",
-        "description": "Select an item and an action.\\n\\nExisting items:\\n{segment_summary}"
+        "description": "Select an item and an action.\n\nExisting items:\n{segment_summary}"
       },
       "add_situation": {
         "title": "Select road segment",

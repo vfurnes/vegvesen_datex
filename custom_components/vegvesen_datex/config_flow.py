@@ -101,14 +101,20 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
+    """OptionsFlow used by the gear icon.
+
+    Fixes in this version:
+    - Use TextSelector for filter fields (prevents 'expected str' errors).
+    - Use SelectOptionDict so dropdowns show labels (not just IDs).
+    - Use SelectSelectorMode.LIST for entity selection (checkbox list that is clickable on mobile).
+    """
+
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self.entry = entry
 
-        # Common
         self._adding_type: str | None = None
         self._selected_entities: list[str] = []
         self._editing_item_id: str | None = None
-        self._segments_cache: list[dict] = []
 
         # Situation add/edit
         self._situation_options: dict[str, str] = {}
@@ -136,30 +142,28 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if not segments:
             return self.async_abort(reason="no_items")
 
-        self._segments_cache = segments
-
-        options = {}
+        opts: dict[str, str] = {}
         for seg in segments:
             item_id = seg.get(CONF_SEGMENT_ID)
             t = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
             name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SITE_NAME) or seg.get(CONF_SEGMENT_QUERY) or "Ukjent"
             prefix = "Veistykke" if t == TYPE_SITUATION else "Målested"
             if item_id:
-                options[item_id] = f"{prefix}: {name}"
+                opts[item_id] = f"{prefix}: {name}"
 
         schema = vol.Schema(
             {
                 vol.Required("item_id"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[{"value": k, "label": v} for k, v in options.items()],
+                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in opts.items()],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"value": "edit", "label": "Rediger"},
-                            {"value": "remove", "label": "Fjern"},
+                            selector.SelectOptionDict(value="edit", label="Rediger"),
+                            selector.SelectOptionDict(value="remove", label="Fjern"),
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
@@ -181,7 +185,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             new_segments = [s for s in segments if s.get(CONF_SEGMENT_ID) != item_id]
             return self.async_create_entry(title="", data={CONF_SEGMENTS: new_segments})
 
-        # action == edit
+        # edit
         self._editing_item_id = item_id
         item = next((s for s in segments if s.get(CONF_SEGMENT_ID) == item_id), None)
         if not item:
@@ -195,28 +199,23 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             self._weather_site_name = item.get(CONF_SITE_NAME) or item.get(CONF_SEGMENT_NAME)
             return await self.async_step_site()
 
-        # TYPE_SITUATION
         self._situation_id = item.get(CONF_SITUATION_ID)
         self._segment_name = item.get(CONF_SEGMENT_NAME)
         self._segment_query = item.get(CONF_SEGMENT_QUERY)
         return await self.async_step_add_situation()
 
     async def async_step_add_situation(self, user_input=None) -> FlowResult:
-        """Pick a DATEX situationRecord (dropdown + filter)."""
         self._adding_type = TYPE_SITUATION
         errors: dict[str, str] = {}
 
-        filter_text = (user_input or {}).get(CONF_SITUATION_FILTER, "")
-        if not isinstance(filter_text, str):
-            filter_text = ""
+        filter_text = ""
+        if isinstance(user_input, dict):
+            v = user_input.get(CONF_SITUATION_FILTER, "")
+            filter_text = v if isinstance(v, str) else ""
         filter_text = filter_text.strip()
 
         try:
-            client = DatexClient(
-                self.hass,
-                self.entry.data[CONF_USERNAME],
-                self.entry.data[CONF_PASSWORD],
-            )
+            client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
             items = await client.list_situations(filter_text)
             self._situation_options = {rid: label for rid, label in items}
         except Exception as err:
@@ -225,7 +224,9 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             errors["base"] = "fetch_failed"
 
         schema_dict: dict = {
-            vol.Optional(CONF_SITUATION_FILTER, default=filter_text): str,
+            vol.Optional(CONF_SITUATION_FILTER, default=filter_text): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            )
         }
 
         default_id = self._situation_id if self._situation_id in self._situation_options else None
@@ -233,7 +234,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if self._situation_options:
             schema_dict[vol.Required(CONF_SITUATION_ID, default=default_id)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[{"value": k, "label": v} for k, v in self._situation_options.items()],
+                    options=[selector.SelectOptionDict(value=k, label=v) for k, v in self._situation_options.items()],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
@@ -252,12 +253,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(step_id="add_situation", data_schema=vol.Schema(schema_dict), errors=errors)
 
         self._situation_id = situation_id
-
-        # Default display name: label from dropdown
         name_in = (user_input.get(CONF_SEGMENT_NAME) or "").strip()
         self._segment_name = name_in or self._situation_options.get(situation_id) or situation_id
-
-        # Legacy fallback query (helps old sensors/name logic)
         self._segment_query = self._segment_name
 
         return await self.async_step_entities()
@@ -267,20 +264,16 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_site()
 
     async def async_step_site(self, user_input=None) -> FlowResult:
-        """Pick weather measurement site. Filter is 'contains' on full name (and site_id)."""
         errors: dict[str, str] = {}
 
-        filter_text = (user_input or {}).get(CONF_SITE_FILTER, "")
-        if not isinstance(filter_text, str):
-            filter_text = ""
+        filter_text = ""
+        if isinstance(user_input, dict):
+            v = user_input.get(CONF_SITE_FILTER, "")
+            filter_text = v if isinstance(v, str) else ""
         filter_text = filter_text.strip()
 
         try:
-            client = DatexClient(
-                self.hass,
-                self.entry.data[CONF_USERNAME],
-                self.entry.data[CONF_PASSWORD],
-            )
+            client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
             sites = await client.list_sites(filter_text)
             self._site_options = {site_id: site_name for site_id, site_name in sites}
         except Exception as err:
@@ -288,14 +281,18 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             errors["base"] = "fetch_failed"
             self._site_options = {}
 
-        schema_dict: dict = {vol.Optional(CONF_SITE_FILTER, default=filter_text): str}
+        schema_dict: dict = {
+            vol.Optional(CONF_SITE_FILTER, default=filter_text): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            )
+        }
 
         default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
 
         if self._site_options:
             schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[{"value": k, "label": v} for k, v in self._site_options.items()],
+                    options=[selector.SelectOptionDict(value=k, label=v) for k, v in self._site_options.items()],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
@@ -337,16 +334,14 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 await self.hass.config_entries.async_reload(self.entry.entry_id)
                 return self.async_create_entry(title="", data={CONF_SEGMENTS: new_segments})
 
+        # KEY FIX: LIST mode (checkboxes) instead of DROPDOWN (chips)
         schema = vol.Schema(
             {
                 vol.Required(CONF_SEGMENT_ENTITIES, default=default_sel): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=k, label=v)
-                            for k, v in (available.get("options", {}) or {}).items()
-                        ],
+                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in (available.get("options", {}) or {}).items()],
                         multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        mode=selector.SelectSelectorMode.LIST,
                     )
                 )
             }
@@ -355,17 +350,10 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
 
     async def _get_available_entities(self) -> dict[str, list[str] | dict[str, str]]:
-        client = DatexClient(
-            self.hass,
-            self.entry.data[CONF_USERNAME],
-            self.entry.data[CONF_PASSWORD],
-        )
+        client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
 
         if self._adding_type == TYPE_SITUATION:
-            if self._situation_id:
-                status = await client.get_status_for_record(self._situation_id)
-            else:
-                status = await client.get_status_for_query(self._segment_query or "")
+            status = await client.get_status_for_record(self._situation_id) if self._situation_id else await client.get_status_for_query(self._segment_query or "")
 
             options = {
                 ENTITY_STATUS: f"Status (sist: {status.status})",
@@ -375,9 +363,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             defaults = [ENTITY_STATUS, ENTITY_MESSAGE, ENTITY_CLOSED]
             return {"options": options, "defaults": defaults}
 
-        # TYPE_WEATHER
-        site_id = self._weather_site_id or ""
-        measurements = await client.get_measurements_for_site(site_id)
+        measurements = await client.get_measurements_for_site(self._weather_site_id or "")
 
         options: dict[str, str] = {}
         defaults: list[str] = []
@@ -400,29 +386,29 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             options = {
                 ENTITY_WIND_SPEED: "Vindstyrke (hvis tilgjengelig)",
                 ENTITY_WIND_DIRECTION: "Vindretning (hvis tilgjengelig)",
+                ENTITY_TEMPERATURE: "Temperatur (hvis tilgjengelig)",
+                ENTITY_HUMIDITY: "Luftfuktighet (hvis tilgjengelig)",
+                ENTITY_PRESSURE: "Lufttrykk (hvis tilgjengelig)",
+                ENTITY_PRECIP_INTENSITY: "Nedbør-intensitet (hvis tilgjengelig)",
             }
             defaults = [ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION]
 
         return {"options": options, "defaults": defaults}
 
     def _save_item(self) -> list[dict]:
-        """Return updated segments list (supports add + edit)."""
         segments = list(self.entry.options.get(CONF_SEGMENTS, [])) or []
         segments = self._migrate_segments(segments)
 
-        # Edit: replace existing segment
         if self._editing_item_id:
             for i, seg in enumerate(segments):
                 if seg.get(CONF_SEGMENT_ID) == self._editing_item_id:
                     segments[i] = self._build_item(seg_id=self._editing_item_id)
                     break
             else:
-                # fallback: add if not found
                 segments.append(self._build_item(seg_id=self._new_id(segments)))
         else:
             segments.append(self._build_item(seg_id=self._new_id(segments)))
 
-        # Clear edit flag
         self._editing_item_id = None
         return segments
 
@@ -433,7 +419,6 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_SEGMENT_ID: seg_id,
                 CONF_SEGMENT_NAME: self._segment_name,
                 CONF_SITUATION_ID: self._situation_id,
-                # keep legacy query for name fallback
                 CONF_SEGMENT_QUERY: self._segment_query or self._segment_name,
                 CONF_SEGMENT_ENTITIES: self._selected_entities,
             }
@@ -449,7 +434,6 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
     @staticmethod
     def _new_id(segments: list[dict]) -> str:
-        """Stable incremental item ids."""
         max_n = 0
         for s in segments:
             sid = s.get(CONF_SEGMENT_ID) or ""
@@ -460,7 +444,6 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
     @staticmethod
     def _migrate_segments(segments: list[dict]) -> list[dict]:
-        """Migration: set missing type to situation."""
         for seg in segments:
             if CONF_ITEM_TYPE not in seg:
                 seg[CONF_ITEM_TYPE] = TYPE_SITUATION
