@@ -7,6 +7,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    CONF_ITEM_TYPE,
+    TYPE_SITUATION,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
@@ -21,32 +23,36 @@ async def async_setup_entry(
 ) -> None:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: DatexCoordinator = entry_data["coordinator"]
-    segments = entry_data["segments"]
+    items = entry_data["segments"]
+
     entities: list[BinarySensorEntity] = []
-    for segment in segments:
-        segment_id = segment.get(CONF_SEGMENT_ID)
-        segment_name = segment.get(CONF_SEGMENT_NAME) or segment.get(CONF_SEGMENT_QUERY) or "Veistykke"
-        selected = set(segment.get(CONF_SEGMENT_ENTITIES) or [])
-        if not segment_id:
+
+    for item in items:
+        item_type = item.get(CONF_ITEM_TYPE) or TYPE_SITUATION
+        if item_type != TYPE_SITUATION:
             continue
+
+        item_id = item.get(CONF_SEGMENT_ID)
+        name = item.get(CONF_SEGMENT_NAME) or item.get(CONF_SEGMENT_QUERY) or "Veistykke"
+        selected = set(item.get(CONF_SEGMENT_ENTITIES) or [])
+
+        if not item_id:
+            continue
+
         if ENTITY_CLOSED in selected:
-            entities.append(VegvesenDatexClosedBinarySensor(coordinator, segment_id, segment_name))
+            entities.append(VegvesenDatexClosedBinarySensor(coordinator, item_id, name))
+
     async_add_entities(entities, True)
 
 
 class VegvesenDatexClosedBinarySensor(BinarySensorEntity):
-    _attr_name = "Stengt"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
-    def __init__(self, coordinator: DatexCoordinator, segment_id: str, segment_name: str) -> None:
+    def __init__(self, coordinator: DatexCoordinator, item_id: str, name: str) -> None:
         self.coordinator = coordinator
-        self.segment_id = segment_id
-        self._attr_unique_id = (
-            f"{coordinator.config_entry_id}_{segment_id}_closed"
-            if hasattr(coordinator, "config_entry_id")
-            else None
-        )
-        self._attr_name = f"{segment_name} Stengt"
+        self.item_id = item_id
+        self._attr_unique_id = f"{coordinator.config_entry_id}_{item_id}_closed"
+        self._attr_name = f"{name} Stengt"
 
     @property
     def available(self) -> bool:
@@ -56,7 +62,7 @@ class VegvesenDatexClosedBinarySensor(BinarySensorEntity):
     def is_on(self) -> bool:
         if not self.coordinator.data:
             return False
-        data = self.coordinator.data.get(self.segment_id)
+        data = self.coordinator.data.get(self.item_id)
         if not data:
             return False
         status = data.get("status")
