@@ -5,6 +5,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 
 from .const import (
     DOMAIN,
@@ -229,7 +230,16 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SEGMENT_ENTITIES,
                     default=available.get("defaults", []),
-                ): vol.MultiSelect(available.get("options", {}))
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=k, label=v)
+                            for k, v in (available.get("options", {}) or {}).items()
+                        ],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
             }
         )
         return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
