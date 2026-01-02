@@ -124,30 +124,61 @@ class DatexClient:
             source=self._url,
         )
 
-    async def list_sites(self, filter_text: str | None = None, limit: int = 200) -> list[tuple[str, str]]:
+    async def list_sites(self, filter_text: str | None = None, limit: int = 500) -> list[tuple[str, str]]:
+        """Return [(site_id, site_name), ...] from GetMeasurementWeatherSiteTable.
+
+        The v3.1 response uses <measurementSiteTable><measurementSite ...> (not measurementSiteRecord),
+        and the name is typically under measurementSiteName/values/value (lang="nob" or "en").
+        """
         xml_bytes = await self.fetch_weather_site_table()
         root = DET.fromstring(xml_bytes)
 
         filter_l = (filter_text or "").strip().lower()
         out: list[tuple[str, str]] = []
 
-        for rec in root.findall(".//{*}measurementSiteRecord"):
-            site_id = rec.get("id")
-            name_el = rec.find(".//{*}measurementSiteName")
-            site_name = name_el.text.strip() if (name_el is not None and name_el.text) else None
-
-            if not site_id or not site_name:
-                continue
-            if filter_l and filter_l not in site_name.lower():
+        for site in root.findall(".//{*}measurementSite"):
+            site_id = site.get("id")
+            if not site_id:
                 continue
 
-            out.append((site_id, site_name))
+            # Try to pick a sensible display name
+            name: str | None = None
+            name_el = site.find(".//{*}measurementSiteName")
+            if name_el is not None:
+                # Prefer Norwegian (nob/nb/no), then English, then first available
+                candidates = name_el.findall(".//{*}value")
+                if candidates:
+                    def score(v):
+                        lang = (v.get("lang") or "").lower()
+                        if lang in ("nob", "nb", "no"):
+                            return 0
+                        if lang == "en":
+                            return 1
+                        return 2
+                    best = sorted(candidates, key=score)[0]
+                    if best.text:
+                        name = best.text.strip()
+
+            if not name:
+                # Fallbacks used in some payloads
+                txt = site.findtext(".//{*}measurementSiteName")
+                if txt:
+                    name = txt.strip()
+
+            if not name:
+                continue
+
+            if filter_l and filter_l not in name.lower():
+                continue
+
+            out.append((site_id, name))
             if len(out) >= limit:
                 break
 
+        out.sort(key=lambda x: x[1].lower())
         return out
 
-    async def get_wind_for_site(self, site_id: str) -> tuple[float | None, float | None]:
+async def get_wind_for_site(self, site_id: str) -> tuple[float | None, float | None]:
         xml_bytes = await self.fetch_measured_weather()
         root = DET.fromstring(xml_bytes)
 
