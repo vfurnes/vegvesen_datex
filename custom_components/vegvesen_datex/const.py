@@ -9,6 +9,11 @@ CONF_SITE_ID = "site_id"
 CONF_SITE_NAME = "site_name"
 CONF_SITE_FILTER = "site_filter"
 
+# Situation picker (GetSituation)
+CONF_SITUATION_ID = "situation_id"
+CONF_SITUATION_NAME = "situation_name"
+CONF_SITUATION_FILTER = "situation_filter"
+
 CONF_SEGMENTS = "segments"  # options storage (both situation + weather items)
 CONF_SEGMENT_ID = "segment_id"
 CONF_SEGMENT_NAME = "segment_name"
@@ -17,7 +22,7 @@ CONF_SEGMENT_ENTITIES = "segment_entities"
 
 CONF_ADD_ANOTHER = "add_another"
 
-# New: differentiate item types stored in CONF_SEGMENTS
+# Differentiate item types stored in CONF_SEGMENTS
 CONF_ITEM_TYPE = "item_type"
 TYPE_SITUATION = "situation"
 TYPE_WEATHER = "weather"
