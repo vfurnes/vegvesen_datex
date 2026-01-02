@@ -1,8 +1,6 @@
-import logging
-_LOGGER = logging.getLogger(__name__)
-
 from __future__ import annotations
 
+import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -41,6 +39,7 @@ from .const import (
 
 from .datex_client import DatexClient
 
+_LOGGER = logging.getLogger(__name__)
 
 class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Install flow: only credentials (+ scan interval)."""
@@ -159,6 +158,52 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_weather(self, user_input=None) -> FlowResult:
         self._adding_type = TYPE_WEATHER
         return await self.async_step_site()
+    
+    async def async_step_site(self, user_input=None) -> FlowResult:
+        """Pick weather measurement site. Filter is 'contains' on full name (and site_id)."""
+        errors: dict[str, str] = {}
+        filter_text = (user_input or {}).get(CONF_SITE_FILTER, "")
+        if not isinstance(filter_text, str):
+            filter_text = ""
+        filter_text = filter_text.strip()
+
+        try:
+            client = DatexClient(
+                self.hass,
+                self.entry.data[CONF_USERNAME],
+                self.entry.data[CONF_PASSWORD],
+            )
+            sites = await client.list_sites(filter_text)
+            self._site_options = {site_id: site_name for site_id, site_name in sites}
+
+            if user_input is not None:
+                site_id = user_input.get(CONF_SITE_ID)
+
+                if site_id is None:
+                    errors["base"] = "site_required"
+                elif site_id not in self._site_options:
+                    errors["base"] = "site_required"
+                else:
+                    self._weather_site_id = site_id
+                    self._weather_site_name = self._site_options.get(site_id) or str(site_id)
+                    return await self.async_step_entities()
+
+        except Exception as err:
+            _LOGGER.exception("vegvesen_datex options: site step failed: %s", err)
+            errors["base"] = "fetch_failed"
+            self._site_options = {}
+
+        schema_dict: dict = {vol.Optional(CONF_SITE_FILTER, default=filter_text): str}
+
+        if self._site_options:
+            schema_dict[vol.Required(CONF_SITE_ID)] = vol.In(self._site_options)
+        else:
+            schema_dict[vol.Required(CONF_SITE_ID)] = str
+            if not errors.get("base"):
+                errors["base"] = "no_sites"
+
+        return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
+
 
     async def async_step_entities(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
