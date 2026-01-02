@@ -116,54 +116,34 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="add_segment", data_schema=schema, errors=errors)
 
     async def async_step_site(self, user_input=None) -> FlowResult:
-        """Step 3: list and select measurement site (optional).
-
-        If we cannot load sites (auth/network/parse), we still allow the user to continue
-        without selecting a site, but we surface a friendly error instead of 'Unknown error'.
-        """
+        """Step 3: list and select measurement site (optional)."""
         errors: dict[str, str] = {}
 
         filter_text = (user_input or {}).get(CONF_SITE_FILTER, "").strip()
 
-        # Load site options (can be empty)
-        self._site_options = {}
-        try:
-            client = DatexClient(self.hass, self._username or "", self._password or "")
-            sites = await client.list_sites(filter_text)
-            self._site_options = {site_id: site_name for site_id, site_name in sites}
-        except Exception:
-            # Config flow will show "Unknown error" if we let exceptions bubble up.
-            errors["base"] = "fetch_failed"
+        client = DatexClient(self.hass, self._username or "", self._password or "")
+        sites = await client.list_sites(filter_text)
+        # sites = list[tuple[site_id, site_name]]
+        self._site_options = {site_id: site_name for site_id, site_name in sites}
 
         if user_input is not None:
-            site_id = (user_input.get(CONF_SITE_ID) or "").strip() or None
-
-            # Allow blank (optional). If provided, validate against loaded options (if any).
-            if site_id and self._site_options and site_id not in self._site_options:
+            site_id = user_input.get(CONF_SITE_ID)
+            if site_id and site_id not in self._site_options:
                 errors["base"] = "site_required"
             else:
-                self._segment_site_id = site_id
+                self._segment_site_id = site_id or None
                 self._segment_site_name = self._site_options.get(site_id) if site_id else None
                 return await self.async_step_entities()
 
-        # Build schema.
-        # NOTE: vol.In({}) crashes when the dict is empty -> 'Unknown error occurred'.
-        schema_dict: dict = {vol.Optional(CONF_SITE_FILTER, default=filter_text): str}
-
-        if self._site_options:
-            schema_dict[vol.Optional(CONF_SITE_ID)] = vol.In(self._site_options)
-        else:
-            # Still show a text field so advanced users can paste an ID if needed.
-            schema_dict[vol.Optional(CONF_SITE_ID)] = str
-
-            # If we loaded successfully but found nothing, show a clearer message.
-            if not errors.get("base") and filter_text:
-                errors["base"] = "no_sites"
-
-        schema = vol.Schema(schema_dict)
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_SITE_FILTER, default=filter_text): str,
+                vol.Optional(CONF_SITE_ID): vol.In(self._site_options),
+            }
+        )
         return self.async_show_form(step_id="site", data_schema=schema, errors=errors)
 
-async def async_step_entities(self, user_input=None) -> FlowResult:
+    async def async_step_entities(self, user_input=None) -> FlowResult:
         """Step 4: select which entities to create for this segment."""
         errors: dict[str, str] = {}
 
