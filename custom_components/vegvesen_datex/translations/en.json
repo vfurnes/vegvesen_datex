@@ -1,12 +1,7 @@
 {
   "config": {
     "error": {
-      "auth": "Authentication failed. Check username/password.",
-      "segment_required": "Enter a road/bridge search string to continue.",
-      "fetch_failed": "Failed to fetch data from DATEX.",
-      "no_sites": "No measurement sites matched the filter.",
-      "site_required": "Select a measurement site to continue.",
-      "entities_required": "Select at least one entity."
+      "auth": "Authentication failed. Check username/password."
     },
     "step": {
       "user": {
@@ -17,7 +12,18 @@
           "password": "Password",
           "scan_interval": "Update interval (seconds)"
         }
-      },
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "segment_required": "Enter a road/bridge search string to continue.",
+      "fetch_failed": "Failed to fetch data from DATEX.",
+      "no_sites": "No measurement sites matched the filter.",
+      "site_required": "Select a measurement site to continue.",
+      "entities_required": "Select at least one entity."
+    },
+    "step": {
       "init": {
         "title": "Options",
         "description": "Existing entries:\\n{segment_summary}",

@@ -1,12 +1,7 @@
 {
   "config": {
     "error": {
-      "auth": "Innlogging feilet. Sjekk brukernavn/passord.",
-      "segment_required": "Legg inn veistykke/bru (søkestreng) for å fortsette.",
-      "fetch_failed": "Kunne ikke hente data fra DATEX.",
-      "no_sites": "Ingen målesteder matchet filteret.",
-      "site_required": "Velg et målested for å fortsette.",
-      "entities_required": "Velg minst én entitet."
+      "auth": "Innlogging feilet. Sjekk brukernavn/passord."
     },
     "step": {
       "user": {
@@ -17,7 +12,18 @@
           "password": "Passord",
           "scan_interval": "Oppdateringsintervall (sekunder)"
         }
-      },
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "segment_required": "Legg inn veistykke/bru (søkestreng) for å fortsette.",
+      "fetch_failed": "Kunne ikke hente data fra DATEX.",
+      "no_sites": "Ingen målesteder matchet filteret.",
+      "site_required": "Velg et målested for å fortsette.",
+      "entities_required": "Velg minst én entitet."
+    },
+    "step": {
       "init": {
         "title": "Alternativer",
         "description": "Eksisterende oppføringer:\\n{segment_summary}",
