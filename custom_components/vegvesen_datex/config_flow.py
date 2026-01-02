@@ -179,11 +179,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
             if not site_id:
                 errors["base"] = "site_required"
-            elif self._site_options and site_id not in self._site_options:
+            elif site_id not in self._site_options:
                 errors["base"] = "site_required"
             else:
                 self._weather_site_id = site_id
-                self._weather_site_name = self._site_options.get(site_id) or site_id
+                self._weather_site_name = self._site_options.get(site_id)
                 return await self.async_step_entities()
 
         schema_dict: dict = {vol.Optional(CONF_SITE_FILTER, default=filter_text): str}
