@@ -20,28 +20,24 @@
       "fetch_failed": "Could not fetch data from DATEX.",
       "no_sites": "No matches. Try another filter.",
       "site_required": "Select an item to continue.",
-      "entities_required": "Select at least one entity."
+      "entities_required": "Select at least one entity.",
+      "query_required": "You must enter a search text to match."
     },
     "step": {
       "init": {
         "title": "Options",
         "description": "Existing items:\n{segment_summary}",
         "menu_options": {
-          "add_situation": "Add road segment (status)",
+          "add_situation": "Add road segment (status via search)",
           "add_weather": "Add weather station (weather data)",
           "edit_remove": "Edit / remove existing"
         }
       },
-      "edit_remove": {
-        "title": "Edit / remove",
-        "description": "Select an item and an action.\n\nExisting items:\n{segment_summary}"
-      },
       "add_situation": {
-        "title": "Select road segment",
-        "description": "Filter and select a road segment (DATEX situationRecord).",
+        "title": "Road segment",
+        "description": "Enter text to match in DATEX events (GetSituation). If no event matches, status will be normal/open.",
         "data": {
-          "situation_filter": "Filter / search (optional)",
-          "situation_id": "Road segment",
+          "segment_query": "Search text (e.g. \"Måløybrua\" or \"Rv15\")",
           "segment_name": "Display name (optional)"
         }
       },
@@ -59,6 +55,10 @@
         "data": {
           "segment_entities": "Entities"
         }
+      },
+      "edit_remove": {
+        "title": "Edit / remove",
+        "description": "Select an item and an action.\n\nExisting items:\n{segment_summary}"
       }
     }
   }

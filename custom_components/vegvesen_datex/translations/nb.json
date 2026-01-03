@@ -20,28 +20,24 @@
       "fetch_failed": "Kunne ikke hente data fra DATEX.",
       "no_sites": "Ingen treff. Prøv et annet filter.",
       "site_required": "Velg en oppføring for å fortsette.",
-      "entities_required": "Velg minst én entitet."
+      "entities_required": "Velg minst én entitet.",
+      "query_required": "Du må skrive inn et søk/tekst å matche på."
     },
     "step": {
       "init": {
         "title": "Alternativer",
         "description": "Eksisterende oppføringer:\n{segment_summary}",
         "menu_options": {
-          "add_situation": "Legg til veistykke/strekning (status)",
+          "add_situation": "Legg til veistykke/strekning (status via søk)",
           "add_weather": "Legg til målestasjon (værdata)",
           "edit_remove": "Rediger / fjern eksisterende"
         }
       },
-      "edit_remove": {
-        "title": "Rediger / fjern",
-        "description": "Velg en oppføring og handling.\n\nEksisterende oppføringer:\n{segment_summary}"
-      },
       "add_situation": {
-        "title": "Velg veistykke/strekning",
-        "description": "Filtrer og velg veistykke/strekning (DATEX situationRecord).",
+        "title": "Veistykke/strekning",
+        "description": "Skriv inn tekst som skal matches i DATEX-hendelser (GetSituation). Når ingen hendelse matcher, blir status normalt \"åpen\"/\"ingen hendelser\".",
         "data": {
-          "situation_filter": "Filter / søk (valgfritt)",
-          "situation_id": "Veistykke/strekning",
+          "segment_query": "Søk/tekst (f.eks. \"Måløybrua\" eller \"Rv15\")",
           "segment_name": "Visningsnavn (valgfritt)"
         }
       },
@@ -59,6 +55,10 @@
         "data": {
           "segment_entities": "Entiteter"
         }
+      },
+      "edit_remove": {
+        "title": "Rediger / fjern",
+        "description": "Velg en oppføring og handling.\n\nEksisterende oppføringer:\n{segment_summary}"
       }
     }
   }

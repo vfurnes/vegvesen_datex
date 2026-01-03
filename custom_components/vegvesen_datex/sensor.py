@@ -21,6 +21,7 @@ from .const import (
     ENTITY_STATUS,
     ENTITY_MESSAGE,
     ENTITY_WIND_SPEED,
+    ENTITY_WIND_GUST,
     ENTITY_WIND_DIRECTION,
     ENTITY_TEMPERATURE,
     ENTITY_HUMIDITY,
@@ -160,6 +161,21 @@ class VegvesenDatexWindSpeedSensor(VegvesenDatexWeatherBaseSensor):
     def native_value(self) -> float | None:
         w = self._weather()
         return None if w is None else w.get(ENTITY_WIND_SPEED)
+
+
+
+class VegvesenDatexWindGustSensor(VegvesenDatexWeatherBaseSensor):
+    def __init__(self, coordinator: DatexCoordinator, item_id: str, name: str) -> None:
+        super().__init__(coordinator, item_id, name)
+        self._attr_unique_id = f"{coordinator.config_entry_id}_{item_id}_wind_gust"
+        self._attr_name = f"{name} Vindkast"
+        self._attr_native_unit_of_measurement = UnitOfSpeed.METERS_PER_SECOND
+        self._attr_device_class = SensorDeviceClass.WIND_SPEED
+
+    @property
+    def native_value(self) -> float | None:
+        w = self._weather()
+        return None if w is None else w.get(ENTITY_WIND_GUST)
 
 
 class VegvesenDatexWindDirectionSensor(VegvesenDatexWeatherBaseSensor):

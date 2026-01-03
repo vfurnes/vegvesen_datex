@@ -14,7 +14,6 @@ from .const import (
     CONF_SEGMENT_ID,
     CONF_SEGMENT_QUERY,
     CONF_SITE_ID,
-    CONF_SITUATION_ID,
 )
 from .datex_client import DatexClient
 
@@ -41,7 +40,6 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             data: dict[str, Any] = {}
-
             for item in self.segments:
                 item_id = item.get(CONF_SEGMENT_ID)
                 item_type = item.get(CONF_ITEM_TYPE) or TYPE_SITUATION
@@ -49,13 +47,8 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
 
                 if item_type == TYPE_SITUATION:
-                    record_id = item.get(CONF_SITUATION_ID)
-                    if record_id:
-                        status = await self.client.get_status_for_record(record_id)
-                    else:
-                        query = item.get(CONF_SEGMENT_QUERY) or ""
-                        status = await self.client.get_status_for_query(query)
-
+                    query = item.get(CONF_SEGMENT_QUERY) or ""
+                    status = await self.client.get_status_for_query(query)
                     data[item_id] = {"status": status}
                     continue
 
@@ -68,6 +61,5 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
 
             return data
-
         except Exception as err:
             raise UpdateFailed(str(err)) from err
