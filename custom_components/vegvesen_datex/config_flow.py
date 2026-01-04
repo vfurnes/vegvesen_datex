@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -31,6 +33,7 @@ from .const import (
     ENTITY_MESSAGE,
     ENTITY_CLOSED,
     ENTITY_WIND_SPEED,
+    ENTITY_WIND_GUST,
     ENTITY_WIND_DIRECTION,
     ENTITY_TEMPERATURE,
     ENTITY_HUMIDITY,
@@ -42,10 +45,12 @@ from .datex_client import DatexClient
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Install flow: only credentials (+ scan interval)."""
 
     VERSION = 2
+    MINOR_VERSION = 0
 
     async def async_step_user(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -145,7 +150,12 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             if not item_id:
                 continue
             t = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
-            name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SEGMENT_QUERY) or seg.get(CONF_SITE_NAME) or "Ukjent"
+            name = (
+                seg.get(CONF_SEGMENT_NAME)
+                or seg.get(CONF_SEGMENT_QUERY)
+                or seg.get(CONF_SITE_NAME)
+                or "Ukjent"
+            )
             prefix = "Veistykke" if t == TYPE_SITUATION else "Målested"
             opts[item_id] = f"{prefix}: {name}"
 
@@ -306,7 +316,10 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Required(CONF_SEGMENT_ENTITIES, default=default_sel): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in (available.get("options", {}) or {}).items()],
+                        options=[
+                            selector.SelectOptionDict(value=k, label=v)
+                            for k, v in (available.get("options", {}) or {}).items()
+                        ],
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST,
                     )

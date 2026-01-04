@@ -1,7 +1,7 @@
 {
   "domain": "vegvesen_datex",
   "name": "Statens vegvesen DATEX",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "documentation": "https://github.com/vfurnes/vegvesen_datex",
   "issue_tracker": "https://github.com/vfurnes/vegvesen_datex/issues",
   "requirements": ["defusedxml==0.7.1"],

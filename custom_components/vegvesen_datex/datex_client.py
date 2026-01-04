@@ -153,6 +153,7 @@ class DatexClient:
             if name_el is not None:
                 candidates = name_el.findall(".//{*}value")
                 if candidates:
+
                     def score(v):
                         lang = (v.get("lang") or "").lower()
                         if lang in ("nob", "nb", "no"):
@@ -160,6 +161,7 @@ class DatexClient:
                         if lang == "en":
                             return 1
                         return 2
+
                     best = sorted(candidates, key=score)[0]
                     if best.text:
                         name = best.text.strip()
@@ -193,8 +195,16 @@ class DatexClient:
             if ref is None or (ref.get("id") or "").strip() != (site_id or "").strip():
                 continue
 
-            # Try to detect common tags. (We keep it resilient: if tag not present -> None)
+            # Common tags. Keep resilient: if not present -> None
             wind_speed = self._first_number_under(sm.find(".//{*}windSpeed"))
+
+            # Vindkast / maks vind: DATEX kan bruke "maximumWindSpeed" (og noen ganger andre varianter)
+            wind_gust = (
+                self._first_number_under(sm.find(".//{*}maximumWindSpeed"))
+                or self._first_number_under(sm.find(".//{*}maximumWindSpeedOverInterval"))
+                or self._first_number_under(sm.find(".//{*}maximumWindSpeedValue"))
+            )
+
             wind_dir = self._first_number_under(sm.find(".//{*}windDirectionBearing"))
 
             temp = self._first_number_under(sm.find(".//{*}airTemperature"))
@@ -204,6 +214,7 @@ class DatexClient:
 
             out = {
                 ENTITY_WIND_SPEED: wind_speed,
+                ENTITY_WIND_GUST: wind_gust,
                 ENTITY_WIND_DIRECTION: wind_dir,
                 ENTITY_TEMPERATURE: temp,
                 ENTITY_HUMIDITY: rh,
@@ -211,7 +222,6 @@ class DatexClient:
                 ENTITY_PRECIP_INTENSITY: precip,
             }
 
-            # Remove keys that are all None? Keep them; options flow will only display present.
             return out
 
         return {}
