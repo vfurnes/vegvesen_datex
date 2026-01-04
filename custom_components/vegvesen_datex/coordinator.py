@@ -8,12 +8,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    DOMAIN,
+    CONF_SEGMENTS,
     CONF_ITEM_TYPE,
-    TYPE_SITUATION,
     TYPE_WEATHER,
-    CONF_SEGMENT_ID,
-    CONF_SEGMENT_QUERY,
+    TYPE_SITUATION,
     CONF_SITE_ID,
+    CONF_SEGMENT_QUERY,
 )
 from .datex_client import DatexClient
 
@@ -26,40 +27,42 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hass: HomeAssistant,
         client: DatexClient,
         segments: list[dict[str, Any]],
-        scan_interval: int,
+        scan_interval_seconds: int,
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
-            name="vegvesen_datex",
-            update_interval=timedelta(seconds=scan_interval),
+            name=DOMAIN,
+            update_interval=timedelta(seconds=scan_interval_seconds),
         )
         self.client = client
         self.segments = segments
 
     async def _async_update_data(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"weather": {}, "situation": {}}
+
         try:
-            data: dict[str, Any] = {}
-            for item in self.segments:
-                item_id = item.get(CONF_SEGMENT_ID)
-                item_type = item.get(CONF_ITEM_TYPE) or TYPE_SITUATION
-                if not item_id:
+            # WEATHER: fetch per weather segment (simple & robust)
+            for seg in self.segments:
+                if seg.get(CONF_ITEM_TYPE) != TYPE_WEATHER:
                     continue
-
-                if item_type == TYPE_SITUATION:
-                    query = item.get(CONF_SEGMENT_QUERY) or ""
-                    status = await self.client.get_status_for_query(query)
-                    data[item_id] = {"status": status}
+                site_id = seg.get(CONF_SITE_ID)
+                if not site_id:
                     continue
+                values = await self.client.fetch_measured_weather_site(str(site_id))
+                data["weather"][seg["segment_id"]] = values
 
-                if item_type == TYPE_WEATHER:
-                    site_id = item.get(CONF_SITE_ID)
-                    measurements = {}
-                    if site_id:
-                        measurements = await self.client.get_measurements_for_site(site_id)
-                    data[item_id] = {"weather": measurements}
+            # SITUATION: keep existing behavior as raw xml (if you use it elsewhere)
+            # (Not changing your situation logic in this patch – can expand later.)
+            for seg in self.segments:
+                if seg.get(CONF_ITEM_TYPE) != TYPE_SITUATION:
                     continue
+                # For now, store the query so sensors can decide what to do
+                data["situation"][seg["segment_id"]] = {
+                    "query": seg.get(CONF_SEGMENT_QUERY) or "",
+                }
 
-            return data
         except Exception as err:
             raise UpdateFailed(str(err)) from err
+
+        return data

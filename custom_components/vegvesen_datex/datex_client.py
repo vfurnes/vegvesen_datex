@@ -1,227 +1,199 @@
 from __future__ import annotations
 
-import re
+import asyncio
+import logging
 from dataclasses import dataclass
+from typing import Any
 
 import aiohttp
-from defusedxml import ElementTree as DET
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import async_timeout
+import xml.etree.ElementTree as ET
 
 from .const import (
-    SITUATION_URL_DEFAULT,
-    WEATHER_SITE_TABLE_URL_DEFAULT,
     MEASURED_WEATHER_URL_DEFAULT,
-    ENTITY_WIND_SPEED,
-    ENTITY_WIND_GUST,
-    ENTITY_WIND_DIRECTION,
-    ENTITY_TEMPERATURE,
-    ENTITY_HUMIDITY,
-    ENTITY_PRESSURE,
-    ENTITY_PRECIP_INTENSITY,
+    SITUATION_URL_DEFAULT,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class DatexResult:
-    status: str
-    is_closed: bool
-    message: str | None
-    matched: bool
-    source: str
+class MeasuredValue:
+    value: float | int | None
+    time_value: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
 
 
 class DatexClient:
-    def __init__(self, hass, username: str, password: str, url: str = SITUATION_URL_DEFAULT) -> None:
-        self._hass = hass
-        self._username = username
-        self._password = password
-        self._url = url
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        username: str,
+        password: str,
+        measured_weather_url: str = MEASURED_WEATHER_URL_DEFAULT,
+        situation_url: str = SITUATION_URL_DEFAULT,
+        request_timeout: int = 30,
+    ) -> None:
+        self._session = session
+        self._auth = aiohttp.BasicAuth(username, password)
+        self._measured_weather_url = measured_weather_url
+        self._situation_url = situation_url
+        self._timeout = request_timeout
 
-    async def fetch_situation(self) -> bytes:
-        session = async_get_clientsession(self._hass)
-        async with session.get(
-            self._url,
-            auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=30),
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.read()
+    async def _get_text(self, url: str) -> str:
+        async with async_timeout.timeout(self._timeout):
+            async with self._session.get(url, auth=self._auth) as resp:
+                resp.raise_for_status()
+                return await resp.text()
 
-    async def fetch_weather_site_table(self) -> bytes:
-        session = async_get_clientsession(self._hass)
-        async with session.get(
-            WEATHER_SITE_TABLE_URL_DEFAULT,
-            auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=60),
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.read()
+    async def fetch_measured_weather_site(self, site_id: str) -> dict[str, MeasuredValue]:
+        """Fetch and parse GetMeasuredWeatherData for one measurement site id."""
+        xml_text = await self._get_text(self._measured_weather_url)
+        return self._parse_measured_weather_site(xml_text, site_id)
 
-    async def fetch_measured_weather(self) -> bytes:
-        session = async_get_clientsession(self._hass)
-        async with session.get(
-            MEASURED_WEATHER_URL_DEFAULT,
-            auth=aiohttp.BasicAuth(self._username, self._password),
-            timeout=aiohttp.ClientTimeout(total=60),
-        ) as resp:
-            resp.raise_for_status()
-            return await resp.read()
+    def _parse_measured_weather_site(self, xml_text: str, site_id: str) -> dict[str, MeasuredValue]:
+        root = ET.fromstring(xml_text)
 
-    @staticmethod
-    def _flatten_text(xml_bytes: bytes) -> str:
-        root = DET.fromstring(xml_bytes)
-        txt = " ".join(t.strip() for t in root.itertext() if t and t.strip())
-        return re.sub(r"\s+", " ", txt)
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
 
-    @staticmethod
-    def _first_number_under(node) -> float | None:
-        if node is None:
-            return None
-        for child in node.iter():
-            if child.text and re.match(r"^-?\d+(\.\d+)?$", child.text.strip()):
-                return float(child.text.strip())
-        return None
+        def find_first_text(elem: ET.Element, wanted: list[str]) -> str | None:
+            # wanted = ["measurementTimeDefault/timeValue"] etc (localname path)
+            parts = wanted[0].split("/")
+            cur = elem
+            for part in parts:
+                found = None
+                for ch in cur:
+                    if _local(ch.tag) == part:
+                        found = ch
+                        break
+                if found is None:
+                    return None
+                cur = found
+            return (cur.text or "").strip() or None
 
-    async def get_status_for_query(self, query: str) -> DatexResult:
-        xml_bytes = await self.fetch_situation()
-        text = self._flatten_text(xml_bytes)
-        low = text.lower()
-        q = (query or "").strip().lower()
+        def find_path(elem: ET.Element, path: str) -> ET.Element | None:
+            parts = path.split("/")
+            cur = elem
+            for part in parts:
+                found = None
+                for ch in cur:
+                    if _local(ch.tag) == part:
+                        found = ch
+                        break
+                if found is None:
+                    return None
+                cur = found
+            return cur
 
-        matched = bool(q) and (q in low)
-
-        closed_words = ("stengt", "closed", "stenging", "road closed", "bridge closed")
-        restr_words = (
-            "restriks",
-            "restricted",
-            "kolonne",
-            "convoy",
-            "høy",
-            "high-sided",
-            "fare for stengt",
-            "wind",
-        )
-
-        status = "ukjent"
-        is_closed = False
-        msg = None
-
-        if matched:
-            if any(w in low for w in closed_words):
-                status = "stengt"
-                is_closed = True
-            elif any(w in low for w in restr_words):
-                status = "restriksjon"
-            else:
-                status = "åpen"
-
-            idx = low.find(q)
-            if idx >= 0:
-                start = max(0, idx - 120)
-                end = min(len(text), idx + 180)
-                msg = text[start:end].strip()
-        elif q:
-            status = "åpen"
-
-        return DatexResult(
-            status=status,
-            is_closed=is_closed,
-            message=msg,
-            matched=matched,
-            source=self._url,
-        )
-
-    async def list_sites(self, filter_text: str | None = None, limit: int = 500) -> list[tuple[str, str]]:
-        """Return [(site_id, site_name), ...] from GetMeasurementWeatherSiteTable.
-
-        Filter uses case-insensitive 'contains' on site_name.
-        """
-        xml_bytes = await self.fetch_weather_site_table()
-        root = DET.fromstring(xml_bytes)
-
-        filter_l = (filter_text or "").strip().lower()
-        out: list[tuple[str, str]] = []
-
-        for site in root.findall(".//{*}measurementSite"):
-            site_id = site.get("id")
-            if not site_id:
+        # Find correct <siteMeasurements> for this site_id
+        site_measurements = None
+        for sm in root.iter():
+            if _local(sm.tag) != "siteMeasurements":
                 continue
-
-            # pick display name
-            name: str | None = None
-            name_el = site.find(".//{*}measurementSiteName")
-            if name_el is not None:
-                candidates = name_el.findall(".//{*}value")
-                if candidates:
-
-                    def score(v):
-                        lang = (v.get("lang") or "").lower()
-                        if lang in ("nob", "nb", "no"):
-                            return 0
-                        if lang == "en":
-                            return 1
-                        return 2
-
-                    best = sorted(candidates, key=score)[0]
-                    if best.text:
-                        name = best.text.strip()
-
-            if not name:
-                txt = site.findtext(".//{*}measurementSiteName")
-                if txt:
-                    name = txt.strip()
-
-            if not name:
+            ref = find_path(sm, "measurementSiteReference")
+            if ref is None:
                 continue
-
-            if filter_l and filter_l not in name.lower() and filter_l not in site_id.lower():
-                continue
-
-            out.append((site_id, name))
-            if len(out) >= limit:
+            if ref.attrib.get("id") == str(site_id):
+                site_measurements = sm
                 break
 
-        out.sort(key=lambda x: x[1].lower())
-        return out
+        if site_measurements is None:
+            _LOGGER.debug("No siteMeasurements found for site_id=%s", site_id)
+            return {}
 
-    async def get_measurements_for_site(self, site_id: str) -> dict[str, float | None]:
-        """Return a dict of detected measurements for a site_id."""
-        xml_bytes = await self.fetch_measured_weather()
-        root = DET.fromstring(xml_bytes)
+        default_time = find_first_text(site_measurements, ["measurementTimeDefault/timeValue"])
 
-        # Find siteMeasurements with matching reference id
-        for sm in root.findall(".//{*}siteMeasurements"):
-            ref = sm.find(".//{*}measurementSiteReference")
-            if ref is None or (ref.get("id") or "").strip() != (site_id or "").strip():
+        results: dict[str, MeasuredValue] = {}
+
+        # Iterate physicalQuantity blocks
+        for pq in list(site_measurements):
+            if _local(pq.tag) != "physicalQuantity":
                 continue
 
-            # Common tags. Keep resilient: if not present -> None
-            wind_speed = self._first_number_under(sm.find(".//{*}windSpeed"))
+            # Prefer measurementOrCalculationTime/timeValue if present, else fallback to measurementTimeDefault
+            time_value = None
+            moc = find_path(pq, "basicData/measurementOrCalculationTime/timeValue")
+            if moc is not None and (moc.text or "").strip():
+                time_value = moc.text.strip()
+            else:
+                time_value = default_time
 
-            # Vindkast / maks vind: DATEX kan bruke "maximumWindSpeed" (og noen ganger andre varianter)
-            wind_gust = (
-                self._first_number_under(sm.find(".//{*}maximumWindSpeed"))
-                or self._first_number_under(sm.find(".//{*}maximumWindSpeedOverInterval"))
-                or self._first_number_under(sm.find(".//{*}maximumWindSpeedValue"))
-            )
+            # Period (only when present)
+            period_start = None
+            period_end = None
+            ps = find_path(pq, "basicData/measurementOrCalculationTime/period/startOfPeriod")
+            pe = find_path(pq, "basicData/measurementOrCalculationTime/period/endOfPeriod")
+            if ps is not None and (ps.text or "").strip():
+                period_start = ps.text.strip()
+            if pe is not None and (pe.text or "").strip():
+                period_end = pe.text.strip()
 
-            wind_dir = self._first_number_under(sm.find(".//{*}windDirectionBearing"))
+            # HUMIDITY
+            perc = find_path(pq, "basicData/humidity/relativeHumidity/percentage")
+            if perc is not None and (perc.text or "").strip():
+                try:
+                    results["humidity"] = MeasuredValue(
+                        value=float(perc.text.strip()),
+                        time_value=time_value,
+                    )
+                except ValueError:
+                    pass
+                continue
 
-            temp = self._first_number_under(sm.find(".//{*}airTemperature"))
-            rh = self._first_number_under(sm.find(".//{*}relativeHumidity"))
-            pressure = self._first_number_under(sm.find(".//{*}atmosphericPressure"))
-            precip = self._first_number_under(sm.find(".//{*}precipitationIntensity"))
+            # AIR TEMPERATURE
+            temp = find_path(pq, "basicData/temperature/airTemperature/temperature")
+            if temp is not None and (temp.text or "").strip():
+                try:
+                    results["temperature"] = MeasuredValue(
+                        value=float(temp.text.strip()),
+                        time_value=time_value,
+                    )
+                except ValueError:
+                    pass
+                continue
 
-            out = {
-                ENTITY_WIND_SPEED: wind_speed,
-                ENTITY_WIND_GUST: wind_gust,
-                ENTITY_WIND_DIRECTION: wind_dir,
-                ENTITY_TEMPERATURE: temp,
-                ENTITY_HUMIDITY: rh,
-                ENTITY_PRESSURE: pressure,
-                ENTITY_PRECIP_INTENSITY: precip,
-            }
+            # WIND DIRECTION
+            dirb = find_path(pq, "basicData/wind/windDirectionBearing/directionBearing")
+            if dirb is not None and (dirb.text or "").strip():
+                try:
+                    results["wind_direction"] = MeasuredValue(
+                        value=int(float(dirb.text.strip())),
+                        time_value=time_value,
+                    )
+                except ValueError:
+                    pass
+                continue
 
-            return out
+            # WIND GUST (maximumWindSpeed)
+            gust = find_path(pq, "basicData/wind/maximumWindSpeed/windSpeed")
+            if gust is not None and (gust.text or "").strip():
+                try:
+                    results["wind_gust"] = MeasuredValue(
+                        value=float(gust.text.strip()),
+                        time_value=time_value,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+                except ValueError:
+                    pass
+                continue
 
-        return {}
+            # WIND SPEED (windSpeed)
+            ws = find_path(pq, "basicData/wind/windSpeed/windSpeed")
+            if ws is not None and (ws.text or "").strip():
+                try:
+                    results["wind_speed"] = MeasuredValue(
+                        value=float(ws.text.strip()),
+                        time_value=time_value,
+                    )
+                except ValueError:
+                    pass
+                continue
+
+        return results
+
+    async def fetch_situation_snapshot(self) -> str:
+        """Raw GetSituation XML (used by coordinator)."""
+        return await self._get_text(self._situation_url)
