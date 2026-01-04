@@ -243,11 +243,15 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         """Pick weather measurement site. Filter is 'contains' on site name (and site_id)."""
         errors: dict[str, str] = {}
 
+        # Read filter robustly: HA can return either a plain string or a small dict
         filter_text = ""
         if isinstance(user_input, dict):
             v = user_input.get(CONF_SITE_FILTER, "")
-            filter_text = v if isinstance(v, str) else ""
-        filter_text = filter_text.strip()
+            if isinstance(v, dict):
+                filter_text = v.get("text") or v.get("value") or v.get("input") or ""
+            elif isinstance(v, str):
+                filter_text = v
+        filter_text = (filter_text or "").strip()
 
         try:
             client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
@@ -258,10 +262,9 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             errors["base"] = "fetch_failed"
             self._site_options = {}
 
+        # IMPORTANT: use a plain str field here to avoid "expected str" issues with some selector payloads
         schema_dict: dict = {
-            vol.Optional(CONF_SITE_FILTER, default=filter_text): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            )
+            vol.Optional(CONF_SITE_FILTER, default=filter_text): str,
         }
 
         default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
@@ -269,7 +272,10 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if self._site_options:
             schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[selector.SelectOptionDict(value=sid, label=name) for sid, name in self._site_options.items()],
+                    options=[
+                        selector.SelectOptionDict(value=sid, label=name)
+                        for sid, name in self._site_options.items()
+                    ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
@@ -442,4 +448,4 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             entities = seg.get(CONF_SEGMENT_ENTITIES) or []
             prefix = "Veistykke" if t == TYPE_SITUATION else "Målested"
             lines.append(f"- {prefix}: {name} ({len(entities)} entiteter)")
-        return "\\n".join(lines)
+        return "\n".join(lines)
