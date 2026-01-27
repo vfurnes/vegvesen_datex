@@ -13,7 +13,6 @@ from .const import (
     CONF_SEGMENTS,
     CONF_ITEM_TYPE,
     TYPE_SITUATION,
-    TYPE_WEATHER,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
@@ -66,15 +65,11 @@ def _get_items(entry: ConfigEntry) -> list[dict]:
     """Read items from options (preferred). Keep compatibility with legacy data fields."""
     items = entry.options.get(CONF_SEGMENTS)
     if items:
-        # Ensure type for legacy items
         out = []
         for it in items:
             if CONF_ITEM_TYPE not in it:
                 # Legacy “segment” => situation
-                if it.get(CONF_SEGMENT_QUERY):
-                    it = {**it, CONF_ITEM_TYPE: TYPE_SITUATION}
-                else:
-                    it = {**it, CONF_ITEM_TYPE: TYPE_SITUATION}
+                it = {**it, CONF_ITEM_TYPE: TYPE_SITUATION}
             out.append(it)
         return out
 
@@ -88,7 +83,6 @@ def _get_items(entry: ConfigEntry) -> list[dict]:
     if site_id:
         entities.extend([ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION])
 
-    # Store as a “situation” item
     return [
         {
             CONF_ITEM_TYPE: TYPE_SITUATION,

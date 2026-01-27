@@ -6,6 +6,14 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_SCAN_INTERVAL = "scan_interval"
 
+# Legacy / compatibility (older entries / config flows)
+CONF_QUERY = "query"
+CONF_SITE_FILTER = "site_filter"
+
+# Optional entity keys (not always exposed)
+ENTITY_PRESSURE = "pressure"
+ENTITY_PRECIP_INTENSITY = "precip_intensity"
+
 # Options storage
 CONF_SEGMENTS = "segments"
 CONF_ITEM_TYPE = "item_type"
