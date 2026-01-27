@@ -60,6 +60,14 @@
       "edit_remove": {
         "title": "Edit / remove",
         "description": "Select an item and an action.\n\nExisting items:\n{segment_summary}"
+      },
+      "add_radius": {
+        "data": {
+          "segment_name": "Zone name",
+          "radius_zone": "Choose zone:",
+          "radius_km": "Choose diameter around zone (km)"
+        },
+        "description": "Zone name is only used for display and becomes part of the entity names."
       }
     }
   }

@@ -60,6 +60,14 @@
       "edit_remove": {
         "title": "Rediger / fjern",
         "description": "Velg en oppføring og handling.\n\nEksisterende oppføringer:\n{segment_summary}"
+      },
+      "add_radius": {
+        "data": {
+          "segment_name": "Sonenavn",
+          "radius_zone": "Velg sone:",
+          "radius_km": "Velg diameter rundt sone i km"
+        },
+        "description": "Sonenavn brukes kun som visningsnavn og inngår i navn på sensorene."
       }
     }
   }
