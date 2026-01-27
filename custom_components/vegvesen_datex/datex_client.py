@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import aiohttp
@@ -92,6 +93,187 @@ class DatexClient:
             async with self._session.get(url, auth=self._auth) as resp:
                 resp.raise_for_status()
                 return await resp.text()
+
+    
+    # -------------------------
+    # Situation "learning" helpers
+    # -------------------------
+
+    def extract_situation_candidates(self, xml_text: str) -> list[dict[str, str]]:
+        """Extract 'strekning/sted' candidates from a GetSituation snapshot.
+
+        Returns list of dicts:
+          - id: normalized key
+          - label: human label
+          - token1/token2: matching tokens (stored separately in storage layer)
+        We stay conservative: if we can't find good location hints, we skip.
+        """
+        root = ET.fromstring(xml_text)
+
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
+
+        def _clean(s: str) -> str:
+            s = re.sub(r"\s+", " ", (s or "").strip())
+            return s
+
+        # Collect from each situationRecord
+        out: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        for rec in root.iter():
+            if _local(rec.tag) != "situationRecord":
+                continue
+
+            # Try to find locationForDisplay (often contains road + place)
+            loc_display = None
+            for sub in rec.iter():
+                if _local(sub.tag) == "locationForDisplay" and (sub.text or "").strip():
+                    loc_display = _clean(sub.text)
+                    break
+
+            # Try road number/name if present
+            road_number = None
+            road_name = None
+            for sub in rec.iter():
+                if _local(sub.tag) == "roadNumber" and (sub.text or "").strip():
+                    road_number = _clean(sub.text)
+                    break
+            for sub in rec.iter():
+                if _local(sub.tag) == "roadName" and (sub.text or "").strip():
+                    road_name = _clean(sub.text)
+                    break
+
+            # Build label preference: "road_number – loc_display" else loc_display else road_number+road_name
+            label_parts = []
+            if road_number:
+                label_parts.append(road_number)
+            if loc_display:
+                # avoid duplicating road number if already inside loc_display
+                label_parts.append(loc_display)
+            elif road_name:
+                label_parts.append(road_name)
+
+            label = " – ".join([p for p in label_parts if p])
+            label = _clean(label)
+
+            if not label:
+                continue
+
+            # Tokenization for matching later
+            tokens = []
+            if road_number:
+                tokens.append(road_number.lower())
+            # use a simplified place token: strip road prefix from loc_display if possible
+            if loc_display:
+                simplified = loc_display
+                if road_number and road_number.lower() in simplified.lower():
+                    simplified = re.sub(re.escape(road_number), "", simplified, flags=re.I)
+                simplified = _clean(simplified).lower()
+                if simplified:
+                    tokens.append(simplified)
+
+            # Require at least one token
+            if not tokens:
+                continue
+
+            key = "|".join(tokens[:2])  # stable enough
+            key = re.sub(r"[^a-z0-9\|æøå_-]", "", key, flags=re.I)
+
+            if key in seen:
+                continue
+            seen.add(key)
+
+            out.append(
+                {
+                    "id": key,
+                    "label": label,
+                    "token1": tokens[0] if len(tokens) > 0 else "",
+                    "token2": tokens[1] if len(tokens) > 1 else "",
+                }
+            )
+
+        return out
+
+    def parse_situation_events(self, xml_text: str) -> list[dict]:
+        """Parse GetSituation snapshot into lightweight event dicts."""
+        root = ET.fromstring(xml_text)
+
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
+
+        def _clean(s: str) -> str:
+            return re.sub(r"\s+", " ", (s or "").strip())
+
+        events: list[dict] = []
+        for rec in root.iter():
+            if _local(rec.tag) != "situationRecord":
+                continue
+
+            ev_id = rec.attrib.get("id") or ""
+            location_for_display = ""
+            road_number = ""
+            road_name = ""
+            for sub in rec.iter():
+                if _local(sub.tag) == "locationForDisplay" and (sub.text or "").strip():
+                    location_for_display = _clean(sub.text)
+                    break
+            for sub in rec.iter():
+                if _local(sub.tag) == "roadNumber" and (sub.text or "").strip():
+                    road_number = _clean(sub.text)
+                    break
+            for sub in rec.iter():
+                if _local(sub.tag) == "roadName" and (sub.text or "").strip():
+                    road_name = _clean(sub.text)
+                    break
+
+            comments: list[str] = []
+            for sub in rec.iter():
+                if _local(sub.tag) in ("comment", "generalPublicComment", "description") and (sub.text or "").strip():
+                    comments.append(_clean(sub.text))
+                    if len(comments) >= 2:
+                        break
+
+            lat = lon = None
+            lat_text = lon_text = None
+            for sub in rec.iter():
+                if _local(sub.tag) == "latitude" and (sub.text or "").strip():
+                    lat_text = _clean(sub.text)
+                    break
+            for sub in rec.iter():
+                if _local(sub.tag) == "longitude" and (sub.text or "").strip():
+                    lon_text = _clean(sub.text)
+                    break
+            try:
+                if lat_text is not None and lon_text is not None:
+                    lat = float(lat_text)
+                    lon = float(lon_text)
+            except Exception:
+                lat = lon = None
+
+            label_parts = []
+            if road_number:
+                label_parts.append(road_number)
+            if location_for_display:
+                label_parts.append(location_for_display)
+            elif road_name:
+                label_parts.append(road_name)
+            label = _clean(" – ".join(label_parts))
+            text_combined = _clean(" | ".join([p for p in [label, *comments] if p]))
+
+            events.append(
+                {
+                    "id": ev_id,
+                    "label": label,
+                    "text": text_combined,
+                    "location_for_display": location_for_display,
+                    "road_number": road_number,
+                    "road_name": road_name,
+                    "lat": lat,
+                    "lon": lon,
+                }
+            )
+        return events
 
     async def fetch_situation(self) -> str:
         """Fetch raw GetSituation XML (used for credential verification)."""
@@ -223,49 +405,72 @@ class DatexClient:
     # -------------------------
 
     def _parse_site_table(self, xml_text: str) -> list[tuple[str, str]]:
-        """Parse GetMeasurementWeatherSiteTable into (site_id, site_name)."""
+        """Parse GetMeasurementWeatherSiteTable into (site_id, site_name).
+
+        NPRA/Statens vegvesen feeds typically use:
+          - <measurementSiteIdentification>3000064</measurementSiteIdentification>
+          - <measurementSiteName><values><value lang="nob">Rv 15 Måløybrua</value></values></measurementSiteName>
+
+        Some other DATEX feeds may use <measurementSiteReference id="...">.
+        We therefore support both, and we don't depend on namespaces/prefixes.
+        """
         root = ET.fromstring(xml_text)
 
         def _local(tag: str) -> str:
             return tag.split("}", 1)[-1] if "}" in tag else tag
 
+        def _text(node: ET.Element | None) -> str | None:
+            if node is None:
+                return None
+            t = (node.text or "").strip()
+            return t or None
+
         sites: dict[str, str] = {}
 
-        # We don't rely on exact namespace/prefixes; just walk and find records.
-        for rec in root.iter():
-            # Common element names in DATEX: measurementSiteRecord / measurementSiteTable
-            if _local(rec.tag) not in ("measurementSiteRecord", "measurementSite"):  # be tolerant
+        # In NPRA feed, each <measurementSite> is a station
+        for site in root.iter():
+            if _local(site.tag) not in ("measurementSite", "measurementSiteRecord"):
                 continue
 
             sid: str | None = None
             name: str | None = None
 
-            # Find measurementSiteReference with id
-            for ch in list(rec):
-                if _local(ch.tag) == "measurementSiteReference":
-                    sid = ch.attrib.get("id")
+            # 1) Try NPRA-style: <measurementSiteIdentification>
+            for ch in list(site):
+                if _local(ch.tag) == "measurementSiteIdentification":
+                    sid = _text(ch)
                     break
+
+            # 2) Fallback: <measurementSiteReference id="...">
+            if not sid:
+                for ch in site.iter():
+                    if _local(ch.tag) == "measurementSiteReference":
+                        sid = ch.attrib.get("id")
+                        break
 
             if not sid:
                 continue
 
-            # Try a few known-ish paths for name
-            # Some feeds use <measurementSiteName><values><value>..</value></values></measurementSiteName>
-            # Others: <measurementSiteName>..</measurementSiteName>
-            # Others: <name>..</name>
-            def _find_text_under(node: ET.Element, wanted_local: str) -> str | None:
-                for sub in node.iter():
-                    if _local(sub.tag) == wanted_local and (sub.text or "").strip():
-                        return sub.text.strip()
-                return None
-
-            # Search within this record for likely name tags
-            for candidate in ("measurementSiteName", "name", "siteName"):
-                n = _find_text_under(rec, candidate)
-                if n:
-                    name = n
+            # Name: NPRA-style value under measurementSiteName/values/value
+            for ch in list(site):
+                if _local(ch.tag) == "measurementSiteName":
+                    v = None
+                    # prefer first <value> that has text
+                    for sub in ch.iter():
+                        if _local(sub.tag) == "value" and (sub.text or "").strip():
+                            v = sub.text.strip()
+                            break
+                    name = v
                     break
+
+            # Fallback name tags
+            if not name:
+                for sub in site.iter():
+                    if _local(sub.tag) in ("name", "siteName") and (sub.text or "").strip():
+                        name = sub.text.strip()
+                        break
 
             sites[sid] = name or sid
 
         return list(sites.items())
+

@@ -9,6 +9,7 @@ CONF_SCAN_INTERVAL = "scan_interval"
 # Legacy / compatibility (older entries / config flows)
 CONF_QUERY = "query"
 CONF_SITE_FILTER = "site_filter"
+CONF_KNOWN_STRETCH = "known_stretch"
 
 # Optional entity keys (not always exposed)
 ENTITY_PRESSURE = "pressure"
@@ -19,12 +20,15 @@ CONF_SEGMENTS = "segments"
 CONF_ITEM_TYPE = "item_type"
 TYPE_SITUATION = "situation"
 TYPE_WEATHER = "weather"
+TYPE_RADIUS = "radius"
 
 CONF_SEGMENT_ID = "segment_id"
 CONF_SEGMENT_NAME = "segment_name"
 CONF_SEGMENT_QUERY = "segment_query"      # for situations
 CONF_SITE_ID = "site_id"                  # for weather
 CONF_SITE_NAME = "site_name"
+CONF_RADIUS_ZONE = "radius_zone"
+CONF_RADIUS_KM = "radius_km"
 CONF_SEGMENT_ENTITIES = "segment_entities"
 
 DEFAULT_SCAN_INTERVAL = 300  # seconds

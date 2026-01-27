@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.event import async_track_time_interval
+from datetime import timedelta
+
 
 from .const import (
     DOMAIN,
@@ -13,6 +17,7 @@ from .const import (
     CONF_SEGMENTS,
     CONF_ITEM_TYPE,
     TYPE_SITUATION,
+    TYPE_RADIUS,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
@@ -30,6 +35,10 @@ from .datex_client import DatexClient
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
 
 
+STORE_VERSION = 1
+STORE_KEY = f"{DOMAIN}_known_stretches"
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
@@ -43,6 +52,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = DatexCoordinator(hass, client, items, scan)
     coordinator.config_entry_id = entry.entry_id
     await coordinator.async_config_entry_first_refresh()
+    # Load learned stretches (situation locations) and keep in memory
+    store = Store(hass, STORE_VERSION, STORE_KEY)
+    learned = await store.async_load() or {}
+    hass.data[DOMAIN].setdefault("_known_stretches", learned)
+
+    async def _learn_stretches(_now=None):
+        try:
+            xml_text = await client.fetch_situation()
+            candidates = client.extract_situation_candidates(xml_text)
+            # merge
+            changed = False
+            data = hass.data[DOMAIN].setdefault("_known_stretches", {})
+            for c in candidates:
+                cid = c["id"]
+                if cid not in data:
+                    data[cid] = {
+                        "label": c["label"],
+                        "token1": c.get("token1",""),
+                        "token2": c.get("token2",""),
+                    }
+                    changed = True
+            if changed:
+                await store.async_save(data)
+        except Exception:
+            # keep silent to avoid spamming logs; enable debug if needed
+            return
+
+    # Run once shortly after startup, then hourly
+    hass.async_create_task(_learn_stretches())
+    async_track_time_interval(hass, _learn_stretches, timedelta(hours=1))
+
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
