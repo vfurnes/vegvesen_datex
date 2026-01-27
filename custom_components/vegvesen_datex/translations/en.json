@@ -30,7 +30,8 @@
         "menu_options": {
           "add_situation": "Add road segment (status via search)",
           "add_weather": "Add weather station (weather data)",
-          "edit_remove": "Edit / remove existing"
+          "edit_remove": "Edit / remove existing",
+          "add_radius": "Add nearby area (radius)"
         }
       },
       "add_situation": {
