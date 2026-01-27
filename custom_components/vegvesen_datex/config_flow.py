@@ -1,7 +1,8 @@
+
 from __future__ import annotations
 
 import logging
-import re
+import uuid
 
 import voluptuous as vol
 
@@ -15,28 +16,29 @@ from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
-    # options storage
     CONF_SEGMENTS,
     CONF_ITEM_TYPE,
     TYPE_SITUATION,
     TYPE_WEATHER,
+    TYPE_RADIUS,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
     CONF_SEGMENT_ENTITIES,
-    # site picker
     CONF_SITE_ID,
     CONF_SITE_NAME,
     CONF_SITE_FILTER,
-    # entities
+    CONF_KNOWN_STRETCH,
+    CONF_RADIUS_ZONE,
+    CONF_RADIUS_KM,
     ENTITY_STATUS,
     ENTITY_MESSAGE,
     ENTITY_CLOSED,
+    ENTITY_TEMPERATURE,
+    ENTITY_HUMIDITY,
     ENTITY_WIND_SPEED,
     ENTITY_WIND_GUST,
     ENTITY_WIND_DIRECTION,
-    ENTITY_TEMPERATURE,
-    ENTITY_HUMIDITY,
     ENTITY_PRESSURE,
     ENTITY_PRECIP_INTENSITY,
 )
@@ -47,15 +49,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Install flow: only credentials (+ scan interval)."""
-
     VERSION = 2
     MINOR_VERSION = 0
 
     async def async_step_user(self, user_input=None) -> FlowResult:
         errors: dict[str, str] = {}
 
-        # Only one config entry (shared credentials).
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
 
@@ -69,21 +68,16 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 try:
                     client = DatexClient(self.hass, username, password)
-                    await client.fetch_situation()  # verify creds
+                    await client.fetch_situation()
                 except Exception:
                     errors["base"] = "auth"
 
             if not errors:
                 if scan < DEFAULT_SCAN_INTERVAL:
                     scan = DEFAULT_SCAN_INTERVAL
-
                 return self.async_create_entry(
                     title="DATEX",
-                    data={
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_SCAN_INTERVAL: scan,
-                    },
+                    data={CONF_USERNAME: username, CONF_PASSWORD: password, CONF_SCAN_INTERVAL: scan},
                     options={CONF_SEGMENTS: []},
                 )
 
@@ -97,75 +91,57 @@ class VegvesenDatexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
         return VegvesenDatexOptionsFlowHandler(config_entry)
 
 
 class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
-    """OptionsFlow used by the gear icon.
-
-    - Add multiple items (situation queries and weather sites)
-    - Edit/remove existing items
-    - Weather site picker with filter + labeled dropdown
-    - Entity picker uses LIST mode (checkboxes) for clickable UX
-    """
-
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self.entry = entry
 
-        # Common
         self._adding_type: str | None = None
-        self._selected_entities: list[str] = []
-        self._editing_item_id: str | None = None
+        self._editing_id: str | None = None
 
-        # Situation
-        self._segment_query: str | None = None
-        self._segment_name: str | None = None
+        self._segment_name: str = ""
+        self._segment_query: str = ""
 
-        # Weather
+        self._site_filter: str = ""
         self._site_options: dict[str, str] = {}
         self._weather_site_id: str | None = None
         self._weather_site_name: str | None = None
 
+        self._radius_zone: str = "zone.home"
+        self._radius_km: int = 20
+
+        self._selected_entities: list[str] = []
+
     async def async_step_init(self, user_input=None) -> FlowResult:
-        segment_summary = self._format_segment_summary()
+        summary = self._format_segment_summary()
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_situation", "add_weather", "edit_remove"],
-            description_placeholders={"segment_summary": segment_summary},
+            menu_options=["add_situation", "add_weather", "add_radius", "edit_remove"],
+            description_placeholders={"segment_summary": summary},
         )
 
     async def async_step_edit_remove(self, user_input=None) -> FlowResult:
         segments = list(self.entry.options.get(CONF_SEGMENTS, [])) or []
-        segments = self._migrate_segments(segments)
-
         if not segments:
             return self.async_abort(reason="no_items")
 
-        opts: dict[str, str] = {}
+        opts = []
         for seg in segments:
-            item_id = seg.get(CONF_SEGMENT_ID)
-            if not item_id:
+            sid = seg.get(CONF_SEGMENT_ID)
+            if not sid:
                 continue
             t = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
-            name = (
-                seg.get(CONF_SEGMENT_NAME)
-                or seg.get(CONF_SEGMENT_QUERY)
-                or seg.get(CONF_SITE_NAME)
-                or "Ukjent"
-            )
-            prefix = "Veistykke" if t == TYPE_SITUATION else "Målested"
-            opts[item_id] = f"{prefix}: {name}"
+            name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SEGMENT_QUERY) or seg.get(CONF_SITE_NAME) or "Ukjent"
+            prefix = "Veistykke" if t == TYPE_SITUATION else ("Nærområde" if t == TYPE_RADIUS else "Målested")
+            opts.append(selector.SelectOptionDict(value=sid, label=f"{prefix}: {name}"))
 
         schema = vol.Schema(
             {
                 vol.Required("item_id"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in opts.items()],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                    selector.SelectSelectorConfig(options=opts, mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
@@ -180,11 +156,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         if user_input is None:
-            return self.async_show_form(
-                step_id="edit_remove",
-                data_schema=schema,
-                description_placeholders={"segment_summary": self._format_segment_summary()},
-            )
+            return self.async_show_form(step_id="edit_remove", data_schema=schema)
 
         item_id = user_input["item_id"]
         action = user_input["action"]
@@ -194,33 +166,42 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data={CONF_SEGMENTS: new_segments})
 
         # edit
-        self._editing_item_id = item_id
-        item = next((s for s in segments if s.get(CONF_SEGMENT_ID) == item_id), None)
-        if not item:
+        seg = next((s for s in segments if s.get(CONF_SEGMENT_ID) == item_id), None)
+        if not seg:
             return self.async_abort(reason="no_items")
 
-        self._adding_type = item.get(CONF_ITEM_TYPE) or TYPE_SITUATION
-        self._selected_entities = list(item.get(CONF_SEGMENT_ENTITIES) or [])
+        self._editing_id = item_id
+        self._adding_type = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
+        self._segment_name = seg.get(CONF_SEGMENT_NAME) or ""
+        self._segment_query = seg.get(CONF_SEGMENT_QUERY) or ""
+        self._selected_entities = list(seg.get(CONF_SEGMENT_ENTITIES) or [])
 
         if self._adding_type == TYPE_WEATHER:
-            self._weather_site_id = item.get(CONF_SITE_ID)
-            self._weather_site_name = item.get(CONF_SITE_NAME) or item.get(CONF_SEGMENT_NAME)
+            self._weather_site_id = seg.get(CONF_SITE_ID)
+            self._weather_site_name = seg.get(CONF_SITE_NAME) or ""
             return await self.async_step_site()
 
-        self._segment_query = item.get(CONF_SEGMENT_QUERY) or ""
-        self._segment_name = item.get(CONF_SEGMENT_NAME) or ""
+        if self._adding_type == TYPE_RADIUS:
+            self._radius_zone = seg.get(CONF_RADIUS_ZONE) or "zone.home"
+            self._radius_km = int(seg.get(CONF_RADIUS_KM) or 20)
+            return await self.async_step_add_radius()
+
         return await self.async_step_add_situation()
 
     async def async_step_add_situation(self, user_input=None) -> FlowResult:
-        """Add a situation item by free-text query (works even when no active situations)."""
         self._adding_type = TYPE_SITUATION
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            q = user_input.get(CONF_SEGMENT_QUERY)
-            n = user_input.get(CONF_SEGMENT_NAME)
-            self._segment_query = (q if isinstance(q, str) else "").strip()
-            self._segment_name = (n if isinstance(n, str) else "").strip()
+            known = user_input.get(CONF_KNOWN_STRETCH)
+            self._segment_query = (user_input.get(CONF_SEGMENT_QUERY) or "").strip()
+            self._segment_name = (user_input.get(CONF_SEGMENT_NAME) or "").strip()
+
+            if known and not self._segment_query:
+                kdata = (self.hass.data.get(DOMAIN, {}).get("_known_stretches") or {}).get(known) or {}
+                t1 = (kdata.get("token1") or "").strip()
+                t2 = (kdata.get("token2") or "").strip()
+                self._segment_query = f"{t1} {t2}".strip()
 
             if not self._segment_query:
                 errors["base"] = "query_required"
@@ -229,8 +210,15 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_SEGMENT_QUERY, default=self._segment_query or ""): str,
-                vol.Optional(CONF_SEGMENT_NAME, default=self._segment_name or ""): str,
+                vol.Optional(CONF_KNOWN_STRETCH): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=self._known_stretch_options(),
+                        multiple=False,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(CONF_SEGMENT_QUERY, default=self._segment_query): str,
+                vol.Optional(CONF_SEGMENT_NAME, default=self._segment_name): str,
             }
         )
         return self.async_show_form(step_id="add_situation", data_schema=schema, errors=errors)
@@ -240,36 +228,27 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_site()
 
     async def async_step_site(self, user_input=None) -> FlowResult:
-        """Pick weather measurement site. Filter is 'contains' on site name (and site_id)."""
+        self._adding_type = TYPE_WEATHER
         errors: dict[str, str] = {}
 
-        # Read filter robustly: HA can return either a plain string or a small dict
-        filter_text = ""
-        if isinstance(user_input, dict):
-            v = user_input.get(CONF_SITE_FILTER, "")
-            if isinstance(v, dict):
-                filter_text = v.get("text") or v.get("value") or v.get("input") or ""
-            elif isinstance(v, str):
-                filter_text = v
-        filter_text = (filter_text or "").strip()
+        if user_input is not None:
+            self._site_filter = (user_input.get(CONF_SITE_FILTER) or "").strip()
 
         try:
             client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
-            sites = await client.list_sites(filter_text)
+            sites = await client.list_sites(self._site_filter)
             self._site_options = {sid: name for sid, name in sites}
         except Exception as err:
-            _LOGGER.exception("vegvesen_datex options: site step failed: %s", err)
+            _LOGGER.exception("vegvesen_datex: list_sites failed: %s", err)
             errors["base"] = "fetch_failed"
             self._site_options = {}
 
-        # IMPORTANT: use a plain str field here to avoid "expected str" issues with some selector payloads
         schema_dict: dict = {
-            vol.Optional(CONF_SITE_FILTER, default=filter_text): str,
+            vol.Optional(CONF_SITE_FILTER, default=self._site_filter): str,
         }
 
-        default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
-
         if self._site_options:
+            default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
             schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
@@ -283,7 +262,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             schema_dict[vol.Optional(CONF_SITE_ID)] = str
             errors["base"] = errors.get("base") or "no_sites"
 
-        if user_input is None or CONF_SITE_ID not in (user_input or {}):
+        if user_input is None or CONF_SITE_ID not in user_input:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
         site_id = (user_input.get(CONF_SITE_ID) or "").strip()
@@ -295,37 +274,55 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         self._weather_site_name = self._site_options.get(site_id) or site_id
         return await self.async_step_entities()
 
-    async def async_step_entities(self, user_input=None) -> FlowResult:
-        """Choose which entities to create. Uses LIST mode for clickable checkboxes."""
+    async def async_step_add_radius(self, user_input=None) -> FlowResult:
+        self._adding_type = TYPE_RADIUS
         errors: dict[str, str] = {}
 
-        try:
-            available = await self._get_available_entities()
-        except Exception as err:
-            _LOGGER.exception("vegvesen_datex options: entities failed: %s", err)
-            available = {"options": {}, "defaults": []}
-            errors["base"] = "fetch_failed"
-
-        default_sel = self._selected_entities or available.get("defaults", [])
-
         if user_input is not None:
-            selected = user_input.get(CONF_SEGMENT_ENTITIES) or []
-            if not selected:
-                errors["base"] = "entities_required"
+            self._segment_name = (user_input.get(CONF_SEGMENT_NAME) or "").strip()
+            self._radius_zone = (user_input.get(CONF_RADIUS_ZONE) or "zone.home").strip()
+            try:
+                self._radius_km = int(user_input.get(CONF_RADIUS_KM))
+            except Exception:
+                self._radius_km = 0
+
+            if self._radius_km <= 0:
+                errors["base"] = "radius_required"
             else:
-                self._selected_entities = list(selected)
-                new_segments = self._save_item()
-                await self.hass.config_entries.async_reload(self.entry.entry_id)
-                return self.async_create_entry(title="", data={CONF_SEGMENTS: new_segments})
+                if not self._segment_name:
+                    self._segment_name = f"Nærområde ({self._radius_km} km)"
+                return await self.async_step_entities()
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_SEGMENT_ENTITIES, default=default_sel): selector.SelectSelector(
+                vol.Optional(CONF_SEGMENT_NAME, default=self._segment_name): str,
+                vol.Optional(CONF_RADIUS_ZONE, default=self._radius_zone): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["zone"])
+                ),
+                vol.Required(CONF_RADIUS_KM, default=self._radius_km or 20): int,
+            }
+        )
+        return self.async_show_form(step_id="add_radius", data_schema=schema, errors=errors)
+
+    async def async_step_entities(self, user_input=None) -> FlowResult:
+        errors: dict[str, str] = {}
+        available = self._available_entities()
+        defaults = self._selected_entities or available["defaults"]
+        if user_input is not None:
+            sel = list(user_input.get(CONF_SEGMENT_ENTITIES) or [])
+            if not sel:
+                errors["base"] = "entities_required"
+            else:
+                self._selected_entities = sel
+                segments = self._save_item()
+                await self.hass.config_entries.async_reload(self.entry.entry_id)
+                return self.async_create_entry(title="", data={CONF_SEGMENTS: segments})
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SEGMENT_ENTITIES, default=defaults): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=k, label=v)
-                            for k, v in (available.get("options", {}) or {}).items()
-                        ],
+                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in available["options"].items()],
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST,
                     )
@@ -334,118 +331,78 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         )
         return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
 
-    async def _get_available_entities(self) -> dict[str, list[str] | dict[str, str]]:
-        client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
-
-        if self._adding_type == TYPE_SITUATION:
-            status = await client.get_status_for_query(self._segment_query or "")
+    def _available_entities(self) -> dict[str, Any]:
+        t = self._adding_type or TYPE_SITUATION
+        if t == TYPE_WEATHER:
             options = {
-                ENTITY_STATUS: f"Status (sist: {status.status})",
-                ENTITY_MESSAGE: "Hendelse / tekst",
-                ENTITY_CLOSED: f"Stengt (sist: {'ja' if status.is_closed else 'nei'})",
+                ENTITY_TEMPERATURE: "Temperatur",
+                ENTITY_HUMIDITY: "Luftfuktighet",
+                ENTITY_WIND_SPEED: "Vindstyrke",
+                ENTITY_WIND_GUST: "Vindkast (maks siste 10 min)",
+                ENTITY_WIND_DIRECTION: "Vindretning",
             }
-            return {"options": options, "defaults": [ENTITY_STATUS, ENTITY_MESSAGE, ENTITY_CLOSED]}
+            defaults = [ENTITY_TEMPERATURE, ENTITY_HUMIDITY, ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION]
+            return {"options": options, "defaults": defaults}
 
-        # weather
-        measurements = await client.get_measurements_for_site(self._weather_site_id or "")
-        options: dict[str, str] = {}
-        defaults: list[str] = []
-
-        def add_if_present(key: str, label: str, unit: str = ""):
-            if key in measurements and measurements[key] is not None:
-                val = measurements[key]
-                suffix = f" (sist: {val}{unit})" if unit else f" (sist: {val})"
-                options[key] = f"{label}{suffix}"
-                defaults.append(key)
-
-        add_if_present(ENTITY_WIND_SPEED, "Vindstyrke", " m/s")
-        add_if_present(ENTITY_WIND_GUST, "Vindkast (maks)", " m/s")
-        add_if_present(ENTITY_WIND_DIRECTION, "Vindretning", "°")
-        add_if_present(ENTITY_TEMPERATURE, "Temperatur", " °C")
-        add_if_present(ENTITY_HUMIDITY, "Luftfuktighet", " %")
-        add_if_present(ENTITY_PRESSURE, "Lufttrykk", " hPa")
-        add_if_present(ENTITY_PRECIP_INTENSITY, "Nedbør-intensitet", "")
-
-        if not options:
-            options = {
-                ENTITY_WIND_SPEED: "Vindstyrke (hvis tilgjengelig)",
-                ENTITY_WIND_GUST: "Vindkast (maks) (hvis tilgjengelig)",
-                ENTITY_WIND_DIRECTION: "Vindretning (hvis tilgjengelig)",
-                ENTITY_TEMPERATURE: "Temperatur (hvis tilgjengelig)",
-                ENTITY_HUMIDITY: "Luftfuktighet (hvis tilgjengelig)",
-                ENTITY_PRESSURE: "Lufttrykk (hvis tilgjengelig)",
-                ENTITY_PRECIP_INTENSITY: "Nedbør-intensitet (hvis tilgjengelig)",
-            }
-            defaults = [ENTITY_WIND_SPEED, ENTITY_WIND_GUST, ENTITY_WIND_DIRECTION]
-
+        # situation + radius
+        options = {
+            ENTITY_STATUS: "Status",
+            ENTITY_MESSAGE: "Hendelse",
+            ENTITY_CLOSED: "Stengt (problem)",
+        }
+        defaults = [ENTITY_STATUS, ENTITY_MESSAGE, ENTITY_CLOSED]
         return {"options": options, "defaults": defaults}
 
     def _save_item(self) -> list[dict]:
         segments = list(self.entry.options.get(CONF_SEGMENTS, [])) or []
-        segments = self._migrate_segments(segments)
 
-        if self._editing_item_id:
-            for i, seg in enumerate(segments):
-                if seg.get(CONF_SEGMENT_ID) == self._editing_item_id:
-                    segments[i] = self._build_item(seg_id=self._editing_item_id)
-                    break
-            else:
-                segments.append(self._build_item(seg_id=self._new_id(segments)))
-        else:
-            segments.append(self._build_item(seg_id=self._new_id(segments)))
-
-        self._editing_item_id = None
-        return segments
-
-    def _build_item(self, seg_id: str) -> dict:
-        if self._adding_type == TYPE_SITUATION:
-            name = (self._segment_name or "").strip() or (self._segment_query or "").strip()
-            return {
-                CONF_ITEM_TYPE: TYPE_SITUATION,
-                CONF_SEGMENT_ID: seg_id,
-                CONF_SEGMENT_NAME: name,
-                CONF_SEGMENT_QUERY: (self._segment_query or "").strip(),
-                CONF_SEGMENT_ENTITIES: self._selected_entities,
-            }
-
-        return {
-            CONF_ITEM_TYPE: TYPE_WEATHER,
+        seg_id = self._editing_id or uuid.uuid4().hex[:8]
+        item: dict = {
             CONF_SEGMENT_ID: seg_id,
-            CONF_SEGMENT_NAME: self._weather_site_name,
-            CONF_SITE_ID: self._weather_site_id,
-            CONF_SITE_NAME: self._weather_site_name,
-            CONF_SEGMENT_ENTITIES: self._selected_entities,
+            CONF_ITEM_TYPE: self._adding_type or TYPE_SITUATION,
+            CONF_SEGMENT_NAME: self._segment_name,
+            CONF_SEGMENT_ENTITIES: list(self._selected_entities or []),
         }
 
-    @staticmethod
-    def _new_id(segments: list[dict]) -> str:
-        max_n = 0
-        for s in segments:
-            sid = s.get(CONF_SEGMENT_ID) or ""
-            m = re.match(r"item_(\d+)$", sid)
-            if m:
-                max_n = max(max_n, int(m.group(1)))
-        return f"item_{max_n + 1}"
+        if self._adding_type == TYPE_WEATHER:
+            item[CONF_SITE_ID] = self._weather_site_id
+            item[CONF_SITE_NAME] = self._weather_site_name or self._weather_site_id
+        elif self._adding_type == TYPE_RADIUS:
+            item[CONF_RADIUS_ZONE] = self._radius_zone
+            item[CONF_RADIUS_KM] = int(self._radius_km)
+        else:
+            item[CONF_SEGMENT_QUERY] = self._segment_query
 
-    @staticmethod
-    def _migrate_segments(segments: list[dict]) -> list[dict]:
-        for seg in segments:
-            if CONF_ITEM_TYPE not in seg:
-                seg[CONF_ITEM_TYPE] = TYPE_SITUATION if seg.get(CONF_SEGMENT_QUERY) else TYPE_WEATHER
-        return segments
+        # replace or append
+        new_segments = []
+        replaced = False
+        for s in segments:
+            if s.get(CONF_SEGMENT_ID) == seg_id:
+                new_segments.append(item)
+                replaced = True
+            else:
+                new_segments.append(s)
+        if not replaced:
+            new_segments.append(item)
+
+        self._editing_id = None
+        return new_segments
+
+    def _known_stretch_options(self) -> list[selector.SelectOptionDict]:
+        data = (self.hass.data.get(DOMAIN, {}).get("_known_stretches") or {})
+        return [
+            selector.SelectOptionDict(value=k, label=(v.get("label") or k))
+            for k, v in sorted(data.items(), key=lambda kv: (kv[1].get("label","").lower(), kv[0]))
+        ]
 
     def _format_segment_summary(self) -> str:
-        segments = list(self.entry.options.get(CONF_SEGMENTS, [])) or []
-        segments = self._migrate_segments(segments)
-
-        if not segments:
-            return "Ingen oppføringer lagt til."
-
-        lines = []
-        for seg in segments:
-            t = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
-            name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SEGMENT_QUERY) or seg.get(CONF_SITE_NAME) or "Ukjent"
-            entities = seg.get(CONF_SEGMENT_ENTITIES) or []
-            prefix = "Veistykke" if t == TYPE_SITUATION else "Målested"
-            lines.append(f"- {prefix}: {name} ({len(entities)} entiteter)")
-        return "\n".join(lines)
+        segs = list(self.entry.options.get(CONF_SEGMENTS, [])) or []
+        if not segs:
+            return "Ingen valgt ennå."
+        parts = []
+        for s in segs[:8]:
+            t = s.get(CONF_ITEM_TYPE) or TYPE_SITUATION
+            name = s.get(CONF_SEGMENT_NAME) or s.get(CONF_SEGMENT_QUERY) or s.get(CONF_SITE_NAME) or "Ukjent"
+            parts.append(f"{t}: {name}")
+        extra = "" if len(segs) <= 8 else f" (+{len(segs)-8} flere)"
+        return " | ".join(parts) + extra
