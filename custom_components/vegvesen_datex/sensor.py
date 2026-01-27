@@ -35,8 +35,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: DatexCoordinator = hass.data[DOMAIN][entry.entry_id]
-
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: DatexCoordinator = entry_data["coordinator"]
     segments = entry.options.get(CONF_SEGMENTS, [])
     entities: list[SensorEntity] = []
 
