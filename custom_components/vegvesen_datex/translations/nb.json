@@ -30,7 +30,8 @@
         "menu_options": {
           "add_situation": "Legg til veistykke/strekning (status via søk)",
           "add_weather": "Legg til målestasjon (værdata)",
-          "edit_remove": "Rediger / fjern eksisterende"
+          "edit_remove": "Rediger / fjern eksisterende",
+          "add_radius": "Legg til nærområde (radius)"
         }
       },
       "add_situation": {
