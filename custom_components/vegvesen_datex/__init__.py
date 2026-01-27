@@ -40,6 +40,7 @@ STORE_KEY = f"{DOMAIN}_known_stretches"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    hass.data.setdefault(DOMAIN, {})
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
     scan = entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -84,7 +85,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_track_time_interval(hass, _learn_stretches, timedelta(hours=1))
 
 
-    hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "segments": items,
