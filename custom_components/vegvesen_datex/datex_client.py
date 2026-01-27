@@ -58,7 +58,7 @@ class DatexClient:
         xml_text = await self._get_text(self._weather_site_table_url)
         sites = self._parse_site_table(xml_text)
 
-        ft = (filter_text or "").strip().lower()
+        ft = str(filter_text or "").strip().lower()
         if ft:
             sites = [(sid, name) for sid, name in sites if ft in sid.lower() or ft in name.lower()]
 

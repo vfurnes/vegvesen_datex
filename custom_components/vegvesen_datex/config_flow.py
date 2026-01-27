@@ -156,7 +156,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         if user_input is None:
-            return self.async_show_form(step_id="edit_remove", data_schema=schema)
+            return self.async_show_form(step_id="edit_remove", data_schema=schema, description_placeholders={\"segment_summary\": self._segment_summary()})
 
         item_id = user_input["item_id"]
         action = user_input["action"]
@@ -232,7 +232,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            self._site_filter = (user_input.get(CONF_SITE_FILTER) or "").strip()
+            self._site_filter = str(user_input.get(CONF_SITE_FILTER) or "").strip()
 
         try:
             client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
