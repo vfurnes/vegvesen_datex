@@ -13,6 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import (
     MEASURED_WEATHER_URL_DEFAULT,
     SITUATION_URL_DEFAULT,
+    WEATHER_SITE_TABLE_URL_DEFAULT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,13 +35,57 @@ class DatexClient:
         password: str,
         measured_weather_url: str = MEASURED_WEATHER_URL_DEFAULT,
         situation_url: str = SITUATION_URL_DEFAULT,
+        weather_site_table_url: str = WEATHER_SITE_TABLE_URL_DEFAULT,
         request_timeout: int = 30,
     ) -> None:
         self._session: aiohttp.ClientSession = async_get_clientsession(hass)
         self._auth = aiohttp.BasicAuth(username, password)
         self._measured_weather_url = measured_weather_url
         self._situation_url = situation_url
+        self._weather_site_table_url = weather_site_table_url
         self._timeout = request_timeout
+
+    # -------------------------
+    # Convenience methods used by config_flow
+    # -------------------------
+
+    async def list_sites(self, filter_text: str = "") -> list[tuple[str, str]]:
+        """List measurement sites (id, name) from GetMeasurementWeatherSiteTable.
+
+        Returns a list of tuples suitable for dropdowns.
+        """
+        xml_text = await self._get_text(self._weather_site_table_url)
+        sites = self._parse_site_table(xml_text)
+
+        ft = (filter_text or "").strip().lower()
+        if ft:
+            sites = [(sid, name) for sid, name in sites if ft in sid.lower() or ft in name.lower()]
+
+        # stable ordering: name then id
+        sites.sort(key=lambda x: (x[1].lower(), x[0]))
+        return sites
+
+    async def get_measurements_for_site(self, site_id: str) -> dict[str, float | int | None]:
+        """Return the latest numeric values for a site (used by options flow previews)."""
+        measured = await self.fetch_measured_weather_site(site_id)
+        return {k: (v.value if v else None) for k, v in measured.items()}
+
+    @dataclass
+    class _Status:
+        status: str
+        is_closed: bool
+
+    async def get_status_for_query(self, query: str) -> "DatexClient._Status":
+        """Very lightweight status helper for situation options.
+
+        We keep this deliberately simple to avoid failing the whole options flow
+        if situation parsing changes upstream.
+        """
+        try:
+            _ = await self.fetch_situation()
+        except Exception:
+            return self._Status(status="ukjent", is_closed=False)
+        return self._Status(status="ok", is_closed=False)
 
     async def _get_text(self, url: str) -> str:
         async with async_timeout.timeout(self._timeout):
@@ -172,3 +217,55 @@ class DatexClient:
                 continue
 
         return results
+
+    # -------------------------
+    # Parsers
+    # -------------------------
+
+    def _parse_site_table(self, xml_text: str) -> list[tuple[str, str]]:
+        """Parse GetMeasurementWeatherSiteTable into (site_id, site_name)."""
+        root = ET.fromstring(xml_text)
+
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
+
+        sites: dict[str, str] = {}
+
+        # We don't rely on exact namespace/prefixes; just walk and find records.
+        for rec in root.iter():
+            # Common element names in DATEX: measurementSiteRecord / measurementSiteTable
+            if _local(rec.tag) not in ("measurementSiteRecord", "measurementSite"):  # be tolerant
+                continue
+
+            sid: str | None = None
+            name: str | None = None
+
+            # Find measurementSiteReference with id
+            for ch in list(rec):
+                if _local(ch.tag) == "measurementSiteReference":
+                    sid = ch.attrib.get("id")
+                    break
+
+            if not sid:
+                continue
+
+            # Try a few known-ish paths for name
+            # Some feeds use <measurementSiteName><values><value>..</value></values></measurementSiteName>
+            # Others: <measurementSiteName>..</measurementSiteName>
+            # Others: <name>..</name>
+            def _find_text_under(node: ET.Element, wanted_local: str) -> str | None:
+                for sub in node.iter():
+                    if _local(sub.tag) == wanted_local and (sub.text or "").strip():
+                        return sub.text.strip()
+                return None
+
+            # Search within this record for likely name tags
+            for candidate in ("measurementSiteName", "name", "siteName"):
+                n = _find_text_under(rec, candidate)
+                if n:
+                    name = n
+                    break
+
+            sites[sid] = name or sid
+
+        return list(sites.items())
