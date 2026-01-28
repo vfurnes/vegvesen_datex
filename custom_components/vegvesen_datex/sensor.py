@@ -8,6 +8,7 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.const import UnitOfSpeed, DEGREE, UnitOfTemperature, PERCENTAGE
 
 from .const import (
@@ -52,23 +53,26 @@ async def async_setup_entry(
     for seg in segments:
         item_type = seg.get(CONF_ITEM_TYPE)
         seg_id = seg.get(CONF_SEGMENT_ID)
-        seg_name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SEGMENT_QUERY) or "DATEX"
+        seg_name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SITE_NAME) or seg.get(CONF_SEGMENT_QUERY) or "DATEX"
         selected = set(seg.get(CONF_SEGMENT_ENTITIES, []))
 
         if not seg_id:
             continue
 
         if item_type == TYPE_WEATHER:
+            site_id = str(seg.get(CONF_SITE_ID) or seg_id)
+            site_name = seg.get(CONF_SITE_NAME) or seg_name
+
             if ENTITY_HUMIDITY in selected:
-                entities.append(_WeatherValueSensor(coordinator, str(seg_id), seg_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY))
             if ENTITY_TEMPERATURE in selected:
-                entities.append(_WeatherValueSensor(coordinator, str(seg_id), seg_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
             if ENTITY_WIND_DIRECTION in selected:
-                entities.append(_WeatherValueSensor(coordinator, str(seg_id), seg_name, "wind_direction", "Vindretning", DEGREE, None))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_direction", "Vindretning", DEGREE, None))
             if ENTITY_WIND_SPEED in selected:
-                entities.append(_WeatherValueSensor(coordinator, str(seg_id), seg_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, None))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, None))
             if ENTITY_WIND_GUST in selected:
-                entities.append(_WeatherValueSensor(coordinator, str(seg_id), seg_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, None, include_period=True))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, None, include_period=True))
 
         elif item_type in (TYPE_SITUATION, TYPE_RADIUS):
             if ENTITY_STATUS in selected:
@@ -91,8 +95,8 @@ class _WeatherValueSensor(SensorEntity):
     def __init__(
         self,
         coordinator: DatexCoordinator,
-        segment_id: str,
-        segment_name: str,
+        site_id: str,
+        site_name: str,
         key: str,
         name_suffix: str,
         unit: str | None,
@@ -100,17 +104,25 @@ class _WeatherValueSensor(SensorEntity):
         include_period: bool = False,
     ) -> None:
         self.coordinator = coordinator
-        self.segment_id = segment_id
+        self.site_id = site_id
+        self.site_name = site_name
         self._spec = _KeySpec(key=key, include_period=include_period)
 
-        self._attr_name = f"{segment_name} {name_suffix}"
-        self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_{key}"
+        self._attr_name = name_suffix
+        self._attr_unique_id = f"{coordinator.config_entry_id}_{site_id}_{key}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
 
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"weather_site_{site_id}")},
+            name=site_name,
+            manufacturer="Statens vegvesen",
+            model="DATEX II Weather Station",
+        )
+
     def _get_measured(self) -> MeasuredValue | None:
         weather = (self.coordinator.data or {}).get("weather", {})
-        seg = weather.get(self.segment_id)
+        seg = weather.get(self.site_id)
         if not seg:
             return None
         return seg.get(self._spec.key)
@@ -151,7 +163,8 @@ class _SituationBaseSensor(SensorEntity):
 
     def __init__(self, coordinator: DatexCoordinator, segment_id: str, name: str) -> None:
         self.coordinator = coordinator
-        self.segment_id = segment_id
+        self.site_id = site_id
+        self.site_name = site_name
         self._base_name = name
 
     def _get(self) -> dict | None:

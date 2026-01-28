@@ -363,6 +363,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SEGMENT_ENTITIES: list(self._selected_entities or []),
         }
 
+        if (self._adding_type == TYPE_WEATHER) and (not self._segment_name):
+            # Bruk målestasjonens navn som segment-navn hvis ikke brukeren har satt eget
+            self._segment_name = self._weather_site_name or self._weather_site_id or "DATEX"
+            item[CONF_SEGMENT_NAME] = self._segment_name
+
         if self._adding_type == TYPE_WEATHER:
             item[CONF_SITE_ID] = self._weather_site_id
             item[CONF_SITE_NAME] = self._weather_site_name or self._weather_site_id
