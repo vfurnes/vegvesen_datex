@@ -156,7 +156,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         if user_input is None:
-            return self.async_show_form(step_id="edit_remove", data_schema=schema, description_placeholders={\"segment_summary\": self._segment_summary()})
+            return self.async_show_form(step_id="edit_remove", data_schema=schema, description_placeholders={"segment_summary": self._segment_summary()})
 
         item_id = user_input["item_id"]
         action = user_input["action"]
