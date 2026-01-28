@@ -84,6 +84,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.async_create_task(_learn_stretches())
     async_track_time_interval(hass, _learn_stretches, timedelta(hours=1))
 
+    async def _update_listener(hass: HomeAssistant, updated_entry: ConfigEntry) -> None:
+        """Handle options updates."""
+        await hass.config_entries.async_reload(updated_entry.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(_update_listener))
 
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
