@@ -315,7 +315,6 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self._selected_entities = sel
                 segments = self._save_item()
-                await self.hass.config_entries.async_reload(self.entry.entry_id)
                 return self.async_create_entry(title="", data={CONF_SEGMENTS: segments})
 
         schema = vol.Schema(
