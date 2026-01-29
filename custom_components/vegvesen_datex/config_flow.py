@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import uuid
 
@@ -249,18 +251,31 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         if self._site_options:
             default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
-            schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value=sid, label=name)
-                        for sid, name in self._site_options.items()
-                    ],
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+
+            if default_site:
+                schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=str(sid), label=str(name))
+                            for sid, name in self._site_options.items()
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
-            )
+            else:
+                schema_dict[vol.Required(CONF_SITE_ID)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=str(sid), label=str(name))
+                            for sid, name in self._site_options.items()
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
         else:
             schema_dict[vol.Optional(CONF_SITE_ID)] = str
             errors["base"] = errors.get("base") or "no_sites"
+
 
         if user_input is None or CONF_SITE_ID not in user_input:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
