@@ -250,28 +250,22 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
         if self._site_options:
-            default_site = self._weather_site_id if self._weather_site_id in self._site_options else None
+            # Legg inn placeholder øverst for å hindre autovalg av første målestasjon
+            select_options = [
+                selector.SelectOptionDict(value="", label="— Velg målestasjon —"),
+                *[
+                    selector.SelectOptionDict(value=str(sid), label=str(name))
+                    for sid, name in self._site_options.items()
+                ],
+            ]
 
-            if default_site:
-                schema_dict[vol.Required(CONF_SITE_ID, default=default_site)] = selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=str(sid), label=str(name))
-                            for sid, name in self._site_options.items()
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+            # Default = "" gjør at UI starter på placeholder og ikke "første ekte" målestasjon
+            schema_dict[vol.Required(CONF_SITE_ID, default="")] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=select_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
-            else:
-                schema_dict[vol.Required(CONF_SITE_ID)] = selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=str(sid), label=str(name))
-                            for sid, name in self._site_options.items()
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                )
+            )
         else:
             schema_dict[vol.Optional(CONF_SITE_ID)] = str
             errors["base"] = errors.get("base") or "no_sites"
@@ -280,11 +274,13 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is None or CONF_SITE_ID not in user_input:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
-        site_id = (user_input.get(CONF_SITE_ID) or "").strip()
+        site_id = str(user_input.get(CONF_SITE_ID) or "").strip()
+
+        # Hvis brukeren bare filtrerte (eller ikke valgte noe), vis skjema på nytt
         if not site_id:
-            errors["base"] = "site_required"
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
+        # Ekte valg -> gå videre
         self._weather_site_id = site_id
         self._weather_site_name = self._site_options.get(site_id) or site_id
         return await self.async_step_entities()
