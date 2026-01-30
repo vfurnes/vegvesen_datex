@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any
@@ -158,7 +157,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         if user_input is None:
-            return self.async_show_form(step_id="edit_remove", data_schema=schema, description_placeholders={"segment_summary": self._segment_summary()})
+            return self.async_show_form(
+                step_id="edit_remove",
+                data_schema=schema,
+                description_placeholders={"segment_summary": self._segment_summary()},
+            )
 
         item_id = user_input["item_id"]
         action = user_input["action"]
@@ -246,11 +249,16 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             self._site_options = {}
 
         schema_dict: dict = {
-            vol.Optional(CONF_SITE_FILTER, default=self._site_filter): str,
+            vol.Optional(CONF_SITE_FILTER, default=self._site_filter): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    label="Filtrer / søk (valgfritt) – trykk Send inn for å søke",
+                    placeholder="F.eks. Måløy, Eid, Stryn …",
+                )
+            ),
         }
 
         if self._site_options:
-            # Legg inn placeholder øverst for å hindre autovalg av første målestasjon
+            # Placeholder øverst for å hindre autovalg av første målestasjon
             select_options = [
                 selector.SelectOptionDict(value="", label="— Velg målestasjon —"),
                 *[
@@ -259,8 +267,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 ],
             ]
 
-            # Default = "" gjør at UI starter på placeholder og ikke "første ekte" målestasjon
-            schema_dict[vol.Required(CONF_SITE_ID, default="")] = selector.SelectSelector(
+            # Viktig: Optional her! Vi vil kunne trykke "Send inn" kun for å filtrere lista.
+            schema_dict[vol.Optional(CONF_SITE_ID, default="")] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=select_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
@@ -270,13 +278,13 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             schema_dict[vol.Optional(CONF_SITE_ID)] = str
             errors["base"] = errors.get("base") or "no_sites"
 
-
+        # Første visning, eller ingen site valgt: vis skjema (ev. etter filtrering)
         if user_input is None or CONF_SITE_ID not in user_input:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
         site_id = str(user_input.get(CONF_SITE_ID) or "").strip()
 
-        # Hvis brukeren bare filtrerte (eller ikke valgte noe), vis skjema på nytt
+        # Hvis brukeren bare filtrerte (eller ikke valgte noe), vis skjema på nytt uten feilmelding
         if not site_id:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
@@ -407,7 +415,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         data = (self.hass.data.get(DOMAIN, {}).get("_known_stretches") or {})
         return [
             selector.SelectOptionDict(value=k, label=(v.get("label") or k))
-            for k, v in sorted(data.items(), key=lambda kv: (kv[1].get("label","").lower(), kv[0]))
+            for k, v in sorted(data.items(), key=lambda kv: (kv[1].get("label", "").lower(), kv[0]))
         ]
 
     def _format_segment_summary(self) -> str:
