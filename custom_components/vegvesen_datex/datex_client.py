@@ -303,16 +303,45 @@ class DatexClient:
                     return None
                 cur = found
             return cur
-
         # Find correct <siteMeasurements> for this site_id
+        #
+        # NOTE: In DATEX feeds, measurementSiteReference may appear as:
+        #   <measurementSiteReference id="3000064" />
+        # or with text content:
+        #   <measurementSiteReference>3000064</measurementSiteReference>
+        # or as an xlink href:
+        #   <measurementSiteReference xlink:href="#3000064" />
+        # We therefore match on id-attribute, text, or href (suffix/fragment).
         site_measurements = None
+        wanted = str(site_id)
+
         for sm in root.iter():
             if _local(sm.tag) != "siteMeasurements":
                 continue
+
             ref = find_path(sm, "measurementSiteReference")
             if ref is None:
                 continue
-            if ref.attrib.get("id") == str(site_id):
+
+            ref_id = (ref.attrib.get("id") or "").strip()
+            if not ref_id and (ref.text or "").strip():
+                ref_id = ref.text.strip()
+
+            href = (
+                ref.attrib.get("{http://www.w3.org/1999/xlink}href")
+                or ref.attrib.get("href")
+                or ""
+            ).strip()
+
+            # Normalize href fragments like "#3000064"
+            href_norm = href.lstrip("#")
+            if href_norm:
+                # Some feeds use full URIs ending with the id
+                if href_norm == wanted or href_norm.endswith(wanted):
+                    site_measurements = sm
+                    break
+
+            if ref_id == wanted:
                 site_measurements = sm
                 break
 

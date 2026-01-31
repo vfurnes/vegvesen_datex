@@ -21,8 +21,6 @@ from .const import (
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
-    CONF_SITE_ID,
-    CONF_SITE_NAME,
     CONF_SEGMENT_ENTITIES,
     ENTITY_STATUS,
     ENTITY_MESSAGE,
@@ -49,7 +47,7 @@ async def async_setup_entry(
 ) -> None:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: DatexCoordinator = entry_data["coordinator"]
-    segments = entry_data.get("segments") or entry.options.get(CONF_SEGMENTS, [])
+    segments = entry.options.get(CONF_SEGMENTS, [])
     entities: list[SensorEntity] = []
 
     for seg in segments:
@@ -165,7 +163,8 @@ class _SituationBaseSensor(SensorEntity):
 
     def __init__(self, coordinator: DatexCoordinator, segment_id: str, name: str) -> None:
         self.coordinator = coordinator
-        self.segment_id = segment_id
+        self.site_id = site_id
+        self.site_name = site_name
         self._base_name = name
 
     def _get(self) -> dict | None:
