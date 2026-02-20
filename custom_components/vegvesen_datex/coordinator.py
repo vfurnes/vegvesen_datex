@@ -65,7 +65,7 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not site_id or not seg_id:
                     continue
                 values = await self.client.fetch_measured_weather_site(str(site_id))
-                data["weather"][str(seg_id)] = values
+                data["weather"][str(site_id)] = values
 
             # SITUATION (fetch once if needed)
             if any(seg.get(CONF_ITEM_TYPE) in (TYPE_SITUATION, TYPE_RADIUS) for seg in self.segments):
