@@ -355,9 +355,17 @@ class DatexClient:
         results: dict[str, MeasuredValue] = {}
 
         # Iterate physicalQuantity blocks
-        for pq in list(site_measurements):
-            if _local(pq.tag) != "physicalQuantity":
+        for pq_outer in list(site_measurements):
+            if _local(pq_outer.tag) != "physicalQuantity":
                 continue
+
+            # NPRA feed wraps real payload as:
+            # <physicalQuantity index="..."><physicalQuantity xsi:type="..."><basicData>...</basicData></physicalQuantity></physicalQuantity>
+            # Unwrap one level if needed.
+            pq = pq_outer
+            children = list(pq_outer)
+            if len(children) == 1 and _local(children[0].tag) == "physicalQuantity":
+                pq = children[0]
 
             # Prefer measurementOrCalculationTime/timeValue if present, else fallback to measurementTimeDefault
             time_value = None

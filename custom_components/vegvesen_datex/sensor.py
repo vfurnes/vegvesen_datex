@@ -21,6 +21,8 @@ from .const import (
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
+    CONF_SITE_ID,
+    CONF_SITE_NAME,
     CONF_SEGMENT_ENTITIES,
     ENTITY_STATUS,
     ENTITY_MESSAGE,
@@ -163,8 +165,7 @@ class _SituationBaseSensor(SensorEntity):
 
     def __init__(self, coordinator: DatexCoordinator, segment_id: str, name: str) -> None:
         self.coordinator = coordinator
-        self.site_id = site_id
-        self.site_name = site_name
+        self.segment_id = segment_id
         self._base_name = name
 
     def _get(self) -> dict | None:
