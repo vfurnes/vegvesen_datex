@@ -196,7 +196,15 @@ class DatexClient:
         return out
 
     def parse_situation_events(self, xml_text: str) -> list[dict]:
-        """Parse GetSituation snapshot into lightweight event dicts."""
+        """Parse GetSituation snapshot into lightweight event dicts.
+
+        We try to extract:
+          - road / location label
+          - what (type/category)
+          - last_update
+          - start_time / expected_end_time (when present)
+          - lat/lon (when present)
+        """
         root = ET.fromstring(xml_text)
 
         def _local(tag: str) -> str:
@@ -205,51 +213,94 @@ class DatexClient:
         def _clean(s: str) -> str:
             return re.sub(r"\s+", " ", (s or "").strip())
 
+        def _get_text_first(elem: ET.Element, names: tuple[str, ...]) -> str | None:
+            for sub in elem.iter():
+                if _local(sub.tag) in names and (sub.text or "").strip():
+                    return _clean(sub.text)
+            return None
+
+        def _camel_to_words(s: str) -> str:
+            # "Roadworks" -> "Roadworks", "PoorRoadConditions" -> "Poor Road Conditions"
+            return re.sub(r"(?<!^)([A-Z])", r" \1", s).strip()
+
+        def _map_type_to_no(xsi_type: str | None) -> str | None:
+            if not xsi_type:
+                return None
+            t = xsi_type.split(":")[-1]
+            mapping = {
+                "Accident": "Ulykke",
+                "Roadworks": "Vegarbeid",
+                "AnimalPresence": "Dyr i vegbanen",
+                "GeneralObstruction": "Hindring",
+                "PoorRoadConditions": "Dårlige kjøreforhold",
+                "AbnormalTraffic": "Avvikende trafikk",
+                "RoadOrCarriagewayOrLaneManagement": "Trafikkregulering / stenging",
+                "WeatherRelatedRoadConditions": "Værrelatert",
+                "NonWeatherRelatedRoadConditions": "Vegtilstand",
+                "TrafficElement": "Trafikkhendelse",
+            }
+            return mapping.get(t) or _camel_to_words(t)
+
+        def _detect_closed(elem: ET.Element) -> bool:
+            # Heuristic: look for common "closed" indicators in record
+            closed_terms = {
+                "closed", "closedToTraffic", "roadClosed", "carriagewayClosed",
+                "closedForMaintenance", "noEntry",
+                "blocked", "impassable",
+            }
+            for sub in elem.iter():
+                if (sub.text or "").strip():
+                    val = _clean(sub.text)
+                    if val in closed_terms:
+                        return True
+            return False
+
+        def _extract_times(elem: ET.Element) -> tuple[str | None, str | None]:
+            # start/end often appear as overallStartTime/overallEndTime
+            start = _get_text_first(elem, ("overallStartTime", "startTime", "validityStartTime", "beginTime"))
+            end = _get_text_first(elem, ("overallEndTime", "endTime", "validityEndTime", "expectedEndTime"))
+            return start, end
+
         events: list[dict] = []
+        xsi_type_key = "{http://www.w3.org/2001/XMLSchema-instance}type"
+
         for rec in root.iter():
             if _local(rec.tag) != "situationRecord":
                 continue
 
             ev_id = rec.attrib.get("id") or ""
-            location_for_display = ""
-            road_number = ""
-            road_name = ""
-            for sub in rec.iter():
-                if _local(sub.tag) == "locationForDisplay" and (sub.text or "").strip():
-                    location_for_display = _clean(sub.text)
-                    break
-            for sub in rec.iter():
-                if _local(sub.tag) == "roadNumber" and (sub.text or "").strip():
-                    road_number = _clean(sub.text)
-                    break
-            for sub in rec.iter():
-                if _local(sub.tag) == "roadName" and (sub.text or "").strip():
-                    road_name = _clean(sub.text)
-                    break
+            xsi_type = rec.attrib.get(xsi_type_key) or rec.attrib.get("type")
 
+            location_for_display = _get_text_first(rec, ("locationForDisplay",)) or ""
+            road_number = _get_text_first(rec, ("roadNumber",)) or ""
+            road_name = _get_text_first(rec, ("roadName",)) or ""
+
+            # Comments / public text
             comments: list[str] = []
             for sub in rec.iter():
                 if _local(sub.tag) in ("comment", "generalPublicComment", "description") and (sub.text or "").strip():
                     comments.append(_clean(sub.text))
-                    if len(comments) >= 2:
+                    if len(comments) >= 3:
                         break
 
+            # Coordinates
             lat = lon = None
-            lat_text = lon_text = None
-            for sub in rec.iter():
-                if _local(sub.tag) == "latitude" and (sub.text or "").strip():
-                    lat_text = _clean(sub.text)
-                    break
-            for sub in rec.iter():
-                if _local(sub.tag) == "longitude" and (sub.text or "").strip():
-                    lon_text = _clean(sub.text)
-                    break
             try:
+                lat_text = _get_text_first(rec, ("latitude",))
+                lon_text = _get_text_first(rec, ("longitude",))
                 if lat_text is not None and lon_text is not None:
                     lat = float(lat_text)
                     lon = float(lon_text)
             except Exception:
                 lat = lon = None
+
+            # Times
+            last_update = _get_text_first(rec, ("situationRecordVersionTime", "versionTime", "situationRecordCreationTime"))
+            start_time, end_time = _extract_times(rec)
+
+            # Type / what
+            what = _map_type_to_no(xsi_type)
+            closed = _detect_closed(rec)
 
             label_parts = []
             if road_number:
@@ -258,21 +309,31 @@ class DatexClient:
                 label_parts.append(location_for_display)
             elif road_name:
                 label_parts.append(road_name)
+
             label = _clean(" – ".join(label_parts))
-            text_combined = _clean(" | ".join([p for p in [label, *comments] if p]))
+            text_combined = _clean(" | ".join([p for p in [label, what or "", *comments] if p]))
 
             events.append(
                 {
                     "id": ev_id,
                     "label": label,
+                    "road": label,
+                    "what": what,
+                    "closed": closed,
                     "text": text_combined,
+                    "comments": comments,
+                    "last_update": last_update,
+                    "start_time": start_time,
+                    "expected_end_time": end_time,
                     "location_for_display": location_for_display,
                     "road_number": road_number,
                     "road_name": road_name,
                     "lat": lat,
                     "lon": lon,
+                    "xsi_type": xsi_type,
                 }
             )
+
         return events
 
     async def fetch_situation(self) -> str:
