@@ -198,12 +198,12 @@ class DatexClient:
     def parse_situation_events(self, xml_text: str) -> list[dict]:
         """Parse GetSituation snapshot into lightweight event dicts.
 
-        We try to extract:
-          - road / location label
-          - what (type/category)
-          - last_update
-          - start_time / expected_end_time (when present)
-          - lat/lon (when present)
+        Returns a list of events with fields suited for Home Assistant dashboards:
+        - id, label, road, what, closed
+        - last_update, start_time, expected_end_time
+        - road_number, road_name, location_for_display
+        - lat, lon
+        - comments (list) and text (combined)
         """
         root = ET.fromstring(xml_text)
 
@@ -213,69 +213,53 @@ class DatexClient:
         def _clean(s: str) -> str:
             return re.sub(r"\s+", " ", (s or "").strip())
 
-        def _get_text_first(elem: ET.Element, names: tuple[str, ...]) -> str | None:
+        def _find_text(elem: ET.Element, names: tuple[str, ...]) -> str:
             for sub in elem.iter():
                 if _local(sub.tag) in names and (sub.text or "").strip():
                     return _clean(sub.text)
-            return None
+            return ""
 
-        def _camel_to_words(s: str) -> str:
-            # "Roadworks" -> "Roadworks", "PoorRoadConditions" -> "Poor Road Conditions"
-            return re.sub(r"(?<!^)([A-Z])", r" \1", s).strip()
+        def _find_attr_xsi_type(elem: ET.Element) -> str:
+            # xsi:type may be namespaced
+            for k, v in elem.attrib.items():
+                if k.endswith("}type") or k == "xsi:type":
+                    return v or ""
+            return ""
 
-        def _map_type_to_no(xsi_type: str | None) -> str | None:
-            if not xsi_type:
-                return None
-            t = xsi_type.split(":")[-1]
+        def _find_time(elem: ET.Element, names: tuple[str, ...]) -> str:
+            # DATEX times are usually ISO strings
+            return _find_text(elem, names)
+
+        def _what_from_xsi(xsi_type: str) -> str:
+            # Map common DATEX record types to nicer labels
+            t = (xsi_type or "").split(":")[-1]
             mapping = {
                 "Accident": "Ulykke",
-                "Roadworks": "Vegarbeid",
-                "AnimalPresence": "Dyr i vegbanen",
-                "GeneralObstruction": "Hindring",
+                "Roadworks": "Vegararbeid",
+                "MaintenanceWorks": "Vedlikeholdsarbeid",
+                "GeneralNetworkManagement": "Trafikkregulering",
                 "PoorRoadConditions": "Dårlige kjøreforhold",
                 "AbnormalTraffic": "Avvikende trafikk",
-                "RoadOrCarriagewayOrLaneManagement": "Trafikkregulering / stenging",
+                "AnimalPresenceObstruction": "Dyr i vegbanen",
+                "Obstruction": "Hinder i vegen",
+                "RoadOrCarriagewayOrLaneManagement": "Vei-/feltregulering",
                 "WeatherRelatedRoadConditions": "Værrelatert",
-                "NonWeatherRelatedRoadConditions": "Vegtilstand",
-                "TrafficElement": "Trafikkhendelse",
             }
-            return mapping.get(t) or _camel_to_words(t)
-
-        def _detect_closed(elem: ET.Element) -> bool:
-            # Heuristic: look for common "closed" indicators in record
-            closed_terms = {
-                "closed", "closedToTraffic", "roadClosed", "carriagewayClosed",
-                "closedForMaintenance", "noEntry",
-                "blocked", "impassable",
-            }
-            for sub in elem.iter():
-                if (sub.text or "").strip():
-                    val = _clean(sub.text)
-                    if val in closed_terms:
-                        return True
-            return False
-
-        def _extract_times(elem: ET.Element) -> tuple[str | None, str | None]:
-            # start/end often appear as overallStartTime/overallEndTime
-            start = _get_text_first(elem, ("overallStartTime", "startTime", "validityStartTime", "beginTime"))
-            end = _get_text_first(elem, ("overallEndTime", "endTime", "validityEndTime", "expectedEndTime"))
-            return start, end
+            return mapping.get(t, t or "Hendelse")
 
         events: list[dict] = []
-        xsi_type_key = "{http://www.w3.org/2001/XMLSchema-instance}type"
-
         for rec in root.iter():
             if _local(rec.tag) != "situationRecord":
                 continue
 
             ev_id = rec.attrib.get("id") or ""
-            xsi_type = rec.attrib.get(xsi_type_key) or rec.attrib.get("type")
+            xsi_type = _find_attr_xsi_type(rec)
+            what = _what_from_xsi(xsi_type)
 
-            location_for_display = _get_text_first(rec, ("locationForDisplay",)) or ""
-            road_number = _get_text_first(rec, ("roadNumber",)) or ""
-            road_name = _get_text_first(rec, ("roadName",)) or ""
+            location_for_display = _find_text(rec, ("locationForDisplay",))
+            road_number = _find_text(rec, ("roadNumber",))
+            road_name = _find_text(rec, ("roadName",))
 
-            # Comments / public text
             comments: list[str] = []
             for sub in rec.iter():
                 if _local(sub.tag) in ("comment", "generalPublicComment", "description") and (sub.text or "").strip():
@@ -283,25 +267,33 @@ class DatexClient:
                     if len(comments) >= 3:
                         break
 
-            # Coordinates
+            # Times (best effort)
+            last_update = _find_time(rec, ("situationRecordVersionTime", "versionTime", "publicationTime"))
+            start_time = _find_time(rec, ("overallStartTime", "startTime", "overallStart", "start"))
+            expected_end_time = _find_time(rec, ("overallEndTime", "endTime", "overallEnd", "end"))
+
+            # Location (best effort)
             lat = lon = None
+            lat_text = _find_text(rec, ("latitude",))
+            lon_text = _find_text(rec, ("longitude",))
             try:
-                lat_text = _get_text_first(rec, ("latitude",))
-                lon_text = _get_text_first(rec, ("longitude",))
-                if lat_text is not None and lon_text is not None:
+                if lat_text and lon_text:
                     lat = float(lat_text)
                     lon = float(lon_text)
             except Exception:
                 lat = lon = None
 
-            # Times
-            last_update = _get_text_first(rec, ("situationRecordVersionTime", "versionTime", "situationRecordCreationTime"))
-            start_time, end_time = _extract_times(rec)
+            # Closed heuristic (best effort)
+            closed = False
+            # Look for typical DATEX terms indicating closure
+            for sub in rec.iter():
+                if (sub.text or "").strip():
+                    txt = (sub.text or "").lower()
+                    if "closed" in txt or "stengt" in txt or "blocked" in txt:
+                        closed = True
+                        break
 
-            # Type / what
-            what = _map_type_to_no(xsi_type)
-            closed = _detect_closed(rec)
-
+            # Build label / road
             label_parts = []
             if road_number:
                 label_parts.append(road_number)
@@ -310,33 +302,35 @@ class DatexClient:
             elif road_name:
                 label_parts.append(road_name)
 
-            label = _clean(" – ".join(label_parts))
-            text_combined = _clean(" | ".join([p for p in [label, what or "", *comments] if p]))
+            label = _clean(" – ".join([p for p in label_parts if p]))
+            road = label  # road = same as label for now (but kept as separate field)
+
+            text_combined = _clean(" | ".join([p for p in [label, what, *comments] if p]))
 
             events.append(
                 {
                     "id": ev_id,
-                    "label": label,
-                    "road": label,
+                    "label": label or "Hendelse",
+                    "road": road or "",
                     "what": what,
                     "closed": closed,
                     "text": text_combined,
                     "comments": comments,
                     "last_update": last_update,
                     "start_time": start_time,
-                    "expected_end_time": end_time,
+                    "expected_end_time": expected_end_time,
                     "location_for_display": location_for_display,
                     "road_number": road_number,
                     "road_name": road_name,
+                    "xsi_type": xsi_type,
                     "lat": lat,
                     "lon": lon,
-                    "xsi_type": xsi_type,
                 }
             )
 
         return events
 
-    async def fetch_situation(self) -> str:
+async def fetch_situation(self) -> str:
         """Fetch raw GetSituation XML (used for credential verification)."""
         return await self._get_text(self._situation_url)
 
@@ -416,17 +410,9 @@ class DatexClient:
         results: dict[str, MeasuredValue] = {}
 
         # Iterate physicalQuantity blocks
-        for pq_outer in list(site_measurements):
-            if _local(pq_outer.tag) != "physicalQuantity":
+        for pq in list(site_measurements):
+            if _local(pq.tag) != "physicalQuantity":
                 continue
-
-            # NPRA feed wraps real payload as:
-            # <physicalQuantity index="..."><physicalQuantity xsi:type="..."><basicData>...</basicData></physicalQuantity></physicalQuantity>
-            # Unwrap one level if needed.
-            pq = pq_outer
-            children = list(pq_outer)
-            if len(children) == 1 and _local(children[0].tag) == "physicalQuantity":
-                pq = children[0]
 
             # Prefer measurementOrCalculationTime/timeValue if present, else fallback to measurementTimeDefault
             time_value = None

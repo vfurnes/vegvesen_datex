@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -21,8 +21,6 @@ from .const import (
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
-    CONF_SITE_ID,
-    CONF_SITE_NAME,
     CONF_SEGMENT_ENTITIES,
     ENTITY_STATUS,
     ENTITY_MESSAGE,
@@ -65,22 +63,16 @@ async def async_setup_entry(
             site_id = str(seg.get(CONF_SITE_ID) or seg_id)
             site_name = seg.get(CONF_SITE_NAME) or seg_name
 
-            # These device classes were added over time in Home Assistant.
-            # Use getattr to stay compatible across versions.
-            wind_speed_dc = getattr(SensorDeviceClass, "WIND_SPEED", None)
-            wind_gust_dc = getattr(SensorDeviceClass, "WIND_GUST", None)
-            wind_dir_dc = getattr(SensorDeviceClass, "WIND_DIRECTION", None)
-
             if ENTITY_HUMIDITY in selected:
                 entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY))
             if ENTITY_TEMPERATURE in selected:
                 entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
             if ENTITY_WIND_DIRECTION in selected:
-                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_direction", "Vindretning", DEGREE, wind_dir_dc))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_direction", "Vindretning", DEGREE, None))
             if ENTITY_WIND_SPEED in selected:
-                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, wind_speed_dc))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, None))
             if ENTITY_WIND_GUST in selected:
-                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, wind_gust_dc, include_period=True))
+                entities.append(_WeatherValueSensor(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, None, include_period=True))
 
         elif item_type in (TYPE_SITUATION, TYPE_RADIUS):
             if ENTITY_STATUS in selected:
@@ -99,7 +91,6 @@ class _KeySpec:
 
 class _WeatherValueSensor(SensorEntity):
     _attr_has_entity_name = True
-    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(
         self,
@@ -147,20 +138,35 @@ class _WeatherValueSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        mv = self._get_measured()
-        if mv is None:
-            return {}
-        attrs: dict[str, Any] = {
-            "site_id": self.site_id,
-            "site_name": self.site_name,
-        }
-        if mv.time_value:
-            attrs[ATTR_LAST_MEASURED] = mv.time_value
-        if self._spec.include_period:
-            if mv.period_start:
-                attrs[ATTR_PERIOD_START] = mv.period_start
-            if mv.period_end:
-                attrs[ATTR_PERIOD_END] = mv.period_end
+        d = self._get() or {}
+        events = d.get("events") or []
+        attrs: dict[str, Any] = {ATTR_MATCHED: int(d.get("count") or 0)}
+        attrs[ATTR_MESSAGE] = events
+        if d.get("first"):
+            attrs[ATTR_SOURCE] = d.get("first")
+
+        lines: list[str] = []
+        for ev in events:
+            road = ev.get("road") or ev.get("label") or ""
+            what = ev.get("what") or ""
+            lu = ev.get("last_update") or ""
+            st = ev.get("start_time") or ""
+            en = ev.get("expected_end_time") or ""
+            dkm = ev.get("distance_km")
+            base = " • ".join([p for p in [road, what] if p])
+            meta = []
+            if dkm is not None:
+                meta.append(f"{dkm} km")
+            if lu:
+                meta.append(f"Oppdatert {lu}")
+            if st:
+                meta.append(f"Start {st}")
+            if en:
+                meta.append(f"Slutt {en}")
+            if meta:
+                base = f"{base} • " + " • ".join(meta)
+            lines.append(base)
+        attrs["lines"] = lines
         return attrs
 
     async def async_added_to_hass(self) -> None:
@@ -233,11 +239,13 @@ class _SituationMessageSensor(_SituationBaseSensor):
 
     @property
     def native_value(self) -> Any:
-        d = self._get()
-        first = (d or {}).get("first")
-        if not first:
-            return "Ingen"
-        return first.get("road") or first.get("label") or first.get("text") or "Hendelse"
+        d = self._get() or {}
+        count = int(d.get("count") or 0)
+        if count == 0:
+            return "Ingen hendelser"
+        if count == 1:
+            return "1 hendelse"
+        return f"{count} hendelser"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -245,20 +253,9 @@ class _SituationMessageSensor(_SituationBaseSensor):
         attrs: dict[str, Any] = {ATTR_MATCHED: int(d.get("count") or 0)}
         events = d.get("events") or []
         attrs[ATTR_MESSAGE] = [
-            {k: v for k, v in ev.items() if k in ("id","label","road","what","closed","last_update","start_time","expected_end_time","distance_km","road_number","location_for_display","lat","lon")}
+            {k: v for k, v in ev.items() if k in ("label", "text", "distance_km", "road_number", "location_for_display", "lat", "lon")}
             for ev in events
         ]
         if d.get("first"):
             attrs[ATTR_SOURCE] = d.get("first")
-        # Human friendly lines for dashboards / notifications
-        attrs["lines"] = [
-            " • ".join([p for p in [
-                (ev.get("road") or ev.get("label") or "").strip() or None,
-                (ev.get("what") or "").strip() or None,
-                (("Oppdatert " + ev.get("last_update")) if ev.get("last_update") else None),
-                (("Start " + ev.get("start_time")) if ev.get("start_time") else None),
-                (("Slutt " + ev.get("expected_end_time")) if ev.get("expected_end_time") else None),
-            ] if p])
-            for ev in events
-        ]
         return attrs

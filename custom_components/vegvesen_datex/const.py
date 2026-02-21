@@ -64,3 +64,7 @@ WEATHER_SITE_TABLE_URL_DEFAULT = (
 MEASURED_WEATHER_URL_DEFAULT = (
     "https://datex-server-get-v3-1.atlas.vegvesen.no/datexapi/GetMeasuredWeatherData/pullsnapshotdata"
 )
+
+
+# UI helpers
+DEFAULT_RADIUS_MARKERS = 10  # number of map markers per radius item

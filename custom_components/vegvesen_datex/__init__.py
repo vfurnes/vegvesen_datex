@@ -32,7 +32,7 @@ from .const import (
 from .coordinator import DatexCoordinator
 from .datex_client import DatexClient
 
-PLATFORMS: list[str] = ["sensor", "binary_sensor"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "geo_location"]
 
 
 STORE_VERSION = 1
@@ -83,6 +83,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Run once shortly after startup, then hourly
     hass.async_create_task(_learn_stretches())
     unsub_learn = async_track_time_interval(hass, _learn_stretches, timedelta(hours=1))
+    entry.async_on_unload(unsub_learn)
 
     async def _update_listener(hass: HomeAssistant, updated_entry: ConfigEntry) -> None:
         """Handle options updates."""
@@ -93,7 +94,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "segments": items,
-        "unsub_learn": unsub_learn,
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -101,14 +101,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
-    unsub = entry_data.get("unsub_learn")
-    if callable(unsub):
-        try:
-            unsub()
-        except Exception:
-            pass
-
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
