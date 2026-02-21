@@ -88,7 +88,12 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     matches: list[dict] = []
                     if query:
                         for ev in events:
-                            hay = " ".join([str(ev.get(k) or "") for k in ("text","label","road","what")]).lower()
+                            hay = " ".join([
+                                str(ev.get("text") or ""),
+                                str(ev.get("label") or ""),
+                                str(ev.get("road") or ""),
+                                str(ev.get("what") or ""),
+                            ]).lower()
                             if query in hay:
                                 matches.append(ev)
                     data["situation"][str(seg_id)] = {
