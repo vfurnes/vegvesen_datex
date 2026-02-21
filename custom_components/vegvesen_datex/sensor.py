@@ -237,7 +237,7 @@ class _SituationMessageSensor(_SituationBaseSensor):
         first = (d or {}).get("first")
         if not first:
             return "Ingen"
-        return first.get("label") or first.get("text") or "Hendelse"
+        return first.get("road") or first.get("label") or first.get("text") or "Hendelse"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -245,9 +245,20 @@ class _SituationMessageSensor(_SituationBaseSensor):
         attrs: dict[str, Any] = {ATTR_MATCHED: int(d.get("count") or 0)}
         events = d.get("events") or []
         attrs[ATTR_MESSAGE] = [
-            {k: v for k, v in ev.items() if k in ("label", "text", "distance_km", "road_number", "location_for_display", "lat", "lon")}
+            {k: v for k, v in ev.items() if k in ("id","label","road","what","closed","last_update","start_time","expected_end_time","distance_km","road_number","location_for_display","lat","lon")}
             for ev in events
         ]
         if d.get("first"):
             attrs[ATTR_SOURCE] = d.get("first")
+        # Human friendly lines for dashboards / notifications
+        attrs["lines"] = [
+            " • ".join([p for p in [
+                (ev.get("road") or ev.get("label") or "").strip() or None,
+                (ev.get("what") or "").strip() or None,
+                (("Oppdatert " + ev.get("last_update")) if ev.get("last_update") else None),
+                (("Start " + ev.get("start_time")) if ev.get("start_time") else None),
+                (("Slutt " + ev.get("expected_end_time")) if ev.get("expected_end_time") else None),
+            ] if p])
+            for ev in events
+        ]
         return attrs
