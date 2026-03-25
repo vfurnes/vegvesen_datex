@@ -94,19 +94,39 @@ class _DatexRadiusEventTracker(TrackerEntity):
         return float(lon) if lon is not None else None
 
     @property
-    def location_name(self) -> str | None:
-        ev = self._get_event()
-        if not ev:
-            return None
+    def extra_state_attributes(self) -> dict[str, Any]:
+        ev = self._get_event() or {}
+
         road = ev.get("road") or ev.get("label") or "Hendelse"
         what = ev.get("what") or ""
         dkm = ev.get("distance_km")
+
         parts = [f"{self.slot.index}.", str(road)]
         if what:
             parts.append(str(what))
         if dkm is not None:
             parts.append(f"({dkm} km)")
-        return " ".join(parts)
+
+        keep = (
+            "id",
+            "label",
+            "road",
+            "what",
+            "closed",
+            "last_update",
+            "start_time",
+            "expected_end_time",
+            "distance_km",
+            "road_number",
+            "road_name",
+            "location_for_display",
+            "lat",
+            "lon",
+        )
+
+        attrs = {k: ev.get(k) for k in keep if k in ev}
+        attrs["event_text"] = " ".join(parts)
+        return attrs
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
