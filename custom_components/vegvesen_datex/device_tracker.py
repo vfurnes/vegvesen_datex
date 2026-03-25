@@ -69,7 +69,7 @@ class _DatexRadiusEventTracker(TrackerEntity):
         self.slot = slot
 
         self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_event_{slot.index}"
-        self._attr_name = f"{base_name} #{slot.index}"
+        self._attr_name = f"Hendelse {slot.index}"
 
     def _get_event(self) -> dict[str, Any] | None:
         d = ((self.coordinator.data or {}).get("situation") or {}).get(self.segment_id) or {}
@@ -119,6 +119,13 @@ class _DatexRadiusEventTracker(TrackerEntity):
             return None
 
     @property
+    def icon(self) -> str:
+        ev = self._get_event() or {}
+        if ev.get("closed") is True:
+            return "mdi:road-variant-off"
+        return "mdi:map-marker-alert"
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         ev = self._get_event() or {}
 
@@ -152,13 +159,6 @@ class _DatexRadiusEventTracker(TrackerEntity):
         attrs = {k: ev.get(k) for k in keep if k in ev}
         attrs["event_text"] = " ".join(parts)
         return attrs
-
-    @property
-    def icon(self) -> str:
-        ev = self._get_event() or {}
-        if ev.get("closed") is True:
-            return "mdi:road-variant-off"
-        return "mdi:map-marker-alert"
 
     @property
     def device_info(self) -> DeviceInfo:
