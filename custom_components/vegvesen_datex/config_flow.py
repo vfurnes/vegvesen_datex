@@ -40,8 +40,13 @@ from .const import (
     ENTITY_WIND_SPEED,
     ENTITY_WIND_GUST,
     ENTITY_WIND_DIRECTION,
-    ENTITY_PRESSURE,
-    ENTITY_PRECIP_INTENSITY,
+    ENTITY_PRECIPITATION_INTENSITY,
+    ENTITY_ROAD_SURFACE_CONDITION,
+    ENTITY_ROAD_SURFACE_TEMPERATURE,
+    ENTITY_ROAD_SURFACE_FRICTION,
+    ENTITY_ROAD_SURFACE_WATER_FILM,
+    ENTITY_ROAD_SURFACE_ICE_LAYER,
+    ENTITY_ROAD_SURFACE_SNOW_DEPTH,
 )
 
 from .datex_client import DatexClient
@@ -353,11 +358,18 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         t = self._adding_type or TYPE_SITUATION
         if t == TYPE_WEATHER:
             options = {
-                ENTITY_TEMPERATURE: "Temperatur",
+                ENTITY_TEMPERATURE: "Temperatur (luft)",
                 ENTITY_HUMIDITY: "Luftfuktighet",
                 ENTITY_WIND_SPEED: "Vindstyrke",
                 ENTITY_WIND_GUST: "Vindkast (maks siste 10 min)",
                 ENTITY_WIND_DIRECTION: "Vindretning",
+                ENTITY_PRECIPITATION_INTENSITY: "Nedbørsintensitet (mm/h)",
+                ENTITY_ROAD_SURFACE_CONDITION: "Føreforhold (tekst)",
+                ENTITY_ROAD_SURFACE_TEMPERATURE: "Vegbanetemperatur",
+                ENTITY_ROAD_SURFACE_FRICTION: "Friksjon",
+                ENTITY_ROAD_SURFACE_WATER_FILM: "Vannfilm (m)",
+                ENTITY_ROAD_SURFACE_ICE_LAYER: "Islag (m)",
+                ENTITY_ROAD_SURFACE_SNOW_DEPTH: "Snødybde (m)",
             }
             defaults = [ENTITY_TEMPERATURE, ENTITY_HUMIDITY, ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION]
             return {"options": options, "defaults": defaults}
