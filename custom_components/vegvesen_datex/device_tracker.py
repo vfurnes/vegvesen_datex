@@ -99,10 +99,8 @@ class _DatexRadiusEventTracker(TrackerEntity):
         ev = self._get_event()
         if not ev:
             return None
-
-        lat = ev.get("lat")
         try:
-            return float(lat) if lat is not None else None
+            return float(ev.get("lat"))
         except (TypeError, ValueError):
             return None
 
@@ -111,12 +109,14 @@ class _DatexRadiusEventTracker(TrackerEntity):
         ev = self._get_event()
         if not ev:
             return None
-
-        lon = ev.get("lon")
         try:
-            return float(lon) if lon is not None else None
+            return float(ev.get("lon"))
         except (TypeError, ValueError):
             return None
+
+    @property
+    def location_name(self) -> str | None:
+        return "home" if self._get_event() is not None else None
 
     @property
     def icon(self) -> str:
