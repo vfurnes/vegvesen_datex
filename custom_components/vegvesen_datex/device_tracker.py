@@ -68,27 +68,79 @@ class _DatexRadiusEventTracker(TrackerEntity):
         self.base_name = base_name
         self.slot = slot
 
-        self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_event_{slot.index}"
+        self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_grouped_event_{slot.index}"
         self._attr_name = f"Hendelse {slot.index}"
 
-    def _get_event(self) -> dict[str, Any] | None:
+    def _get_grouped_events(self) -> list[dict[str, Any]]:
         d = ((self.coordinator.data or {}).get("situation") or {}).get(self.segment_id) or {}
         events = d.get("events") or []
+
+        grouped: dict[tuple, dict[str, Any]] = {}
+
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+
+            lat = ev.get("lat")
+            lon = ev.get("lon")
+            road = ev.get("road") or ev.get("label") or "Hendelse"
+
+            if lat is None or lon is None:
+                continue
+
+            key = (road, round(float(lat), 6), round(float(lon), 6))
+
+            if key not in grouped:
+                grouped[key] = {
+                    "id": ev.get("id"),
+                    "label": ev.get("label"),
+                    "road": ev.get("road"),
+                    "road_number": ev.get("road_number"),
+                    "road_name": ev.get("road_name"),
+                    "location_for_display": ev.get("location_for_display"),
+                    "lat": lat,
+                    "lon": lon,
+                    "distance_km": ev.get("distance_km"),
+                    "closed": bool(ev.get("closed")),
+                    "what_list": [],
+                    "event_ids": [],
+                    "events": [],
+                    "last_update": ev.get("last_update"),
+                    "start_time": ev.get("start_time"),
+                    "expected_end_time": ev.get("expected_end_time"),
+                }
+
+            g = grouped[key]
+            what = ev.get("what")
+            if what and what not in g["what_list"]:
+                g["what_list"].append(what)
+
+            if ev.get("id"):
+                g["event_ids"].append(ev.get("id"))
+
+            g["events"].append(ev)
+
+            if ev.get("closed"):
+                g["closed"] = True
+
+        grouped_list = list(grouped.values())
+
+        def sort_key(item: dict[str, Any]) -> tuple:
+            return (
+                0 if item.get("closed") else 1,
+                float(item.get("distance_km") or 9999),
+                str(item.get("road") or ""),
+            )
+
+        grouped_list.sort(key=sort_key)
+        return grouped_list
+
+    def _get_event(self) -> dict[str, Any] | None:
+        grouped = self._get_grouped_events()
         idx0 = self.slot.index - 1
-
-        if idx0 < 0 or idx0 >= len(events):
+        if idx0 < 0 or idx0 >= len(grouped):
             return None
-
-        ev = events[idx0]
-        if not isinstance(ev, dict):
-            return None
-
-        lat = ev.get("lat")
-        lon = ev.get("lon")
-        if lat is None or lon is None:
-            return None
-
-        return ev
+        return grouped[idx0]
 
     @property
     def available(self) -> bool:
@@ -130,34 +182,34 @@ class _DatexRadiusEventTracker(TrackerEntity):
         ev = self._get_event() or {}
 
         road = ev.get("road") or ev.get("label") or "Hendelse"
-        what = ev.get("what") or ""
         dkm = ev.get("distance_km")
+        what_list = ev.get("what_list") or []
 
-        parts = [f"{self.slot.index}.", str(road)]
-        if what:
-            parts.append(str(what))
+        text = road
+        if what_list:
+            text += " | " + ", ".join(what_list)
         if dkm is not None:
-            parts.append(f"({dkm} km)")
+            text += f" ({dkm} km)"
 
-        keep = (
-            "id",
-            "label",
-            "road",
-            "what",
-            "closed",
-            "last_update",
-            "start_time",
-            "expected_end_time",
-            "distance_km",
-            "road_number",
-            "road_name",
-            "location_for_display",
-            "lat",
-            "lon",
-        )
-
-        attrs = {k: ev.get(k) for k in keep if k in ev}
-        attrs["event_text"] = " ".join(parts)
+        attrs = {
+            "id": ev.get("id"),
+            "label": ev.get("label"),
+            "road": ev.get("road"),
+            "road_number": ev.get("road_number"),
+            "road_name": ev.get("road_name"),
+            "location_for_display": ev.get("location_for_display"),
+            "lat": ev.get("lat"),
+            "lon": ev.get("lon"),
+            "distance_km": ev.get("distance_km"),
+            "closed": ev.get("closed"),
+            "last_update": ev.get("last_update"),
+            "start_time": ev.get("start_time"),
+            "expected_end_time": ev.get("expected_end_time"),
+            "what_list": what_list,
+            "event_ids": ev.get("event_ids"),
+            "event_count": len(ev.get("events") or []),
+            "event_text": text,
+        }
         return attrs
 
     @property
