@@ -330,7 +330,7 @@ class DatexClient:
 
         return events
 
-async def fetch_situation(self) -> str:
+    async def fetch_situation(self) -> str:
         """Fetch raw GetSituation XML (used for credential verification)."""
         return await self._get_text(self._situation_url)
 
@@ -409,77 +409,117 @@ async def fetch_situation(self) -> str:
 
         results: dict[str, MeasuredValue] = {}
 
+        def _txt(node: ET.Element | None) -> str | None:
+            if node is None:
+                return None
+            t = (node.text or "").strip()
+            return t or None
+
+        def _float(node: ET.Element | None) -> float | None:
+            t = _txt(node)
+            if t is None:
+                return None
+            try:
+                return float(t)
+            except ValueError:
+                return None
+
         # Iterate physicalQuantity blocks
-        for pq in list(site_measurements):
-            if _local(pq.tag) != "physicalQuantity":
+        for pq_outer in list(site_measurements):
+            if _local(pq_outer.tag) != "physicalQuantity":
                 continue
+
+            # DATEX wraps each measurement in an outer <physicalQuantity index="N">
+            # containing an inner <physicalQuantity type="..."> that holds <basicData>.
+            # find_path must reach basicData through the inner wrapper.
+            pq = find_path(pq_outer, "physicalQuantity") or pq_outer
 
             # Prefer measurementOrCalculationTime/timeValue if present, else fallback to measurementTimeDefault
-            time_value = None
             moc = find_path(pq, "basicData/measurementOrCalculationTime/timeValue")
-            if moc is not None and (moc.text or "").strip():
-                time_value = moc.text.strip()
-            else:
-                time_value = default_time
+            time_value = _txt(moc) or default_time
 
-            # Period (only when present)
-            period_start = None
-            period_end = None
-            ps = find_path(pq, "basicData/measurementOrCalculationTime/period/startOfPeriod")
-            pe = find_path(pq, "basicData/measurementOrCalculationTime/period/endOfPeriod")
-            if ps is not None and (ps.text or "").strip():
-                period_start = ps.text.strip()
-            if pe is not None and (pe.text or "").strip():
-                period_end = pe.text.strip()
+            # Period (only when present – used for wind gust)
+            period_start = _txt(find_path(pq, "basicData/measurementOrCalculationTime/period/startOfPeriod"))
+            period_end   = _txt(find_path(pq, "basicData/measurementOrCalculationTime/period/endOfPeriod"))
 
-            # HUMIDITY
-            perc = find_path(pq, "basicData/humidity/relativeHumidity/percentage")
-            if perc is not None and (perc.text or "").strip():
-                try:
-                    results["humidity"] = MeasuredValue(float(perc.text.strip()), time_value=time_value)
-                except ValueError:
-                    pass
+            # ── HUMIDITY ────────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/humidity/relativeHumidity/percentage"))
+            if v is not None:
+                results["humidity"] = MeasuredValue(v, time_value=time_value)
                 continue
 
-            # AIR TEMPERATURE
-            temp = find_path(pq, "basicData/temperature/airTemperature/temperature")
-            if temp is not None and (temp.text or "").strip():
-                try:
-                    results["temperature"] = MeasuredValue(float(temp.text.strip()), time_value=time_value)
-                except ValueError:
-                    pass
+            # ── AIR TEMPERATURE ─────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/temperature/airTemperature/temperature"))
+            if v is not None:
+                results["temperature"] = MeasuredValue(v, time_value=time_value)
                 continue
 
-            # WIND DIRECTION
-            dirb = find_path(pq, "basicData/wind/windDirectionBearing/directionBearing")
-            if dirb is not None and (dirb.text or "").strip():
-                try:
-                    results["wind_direction"] = MeasuredValue(int(float(dirb.text.strip())), time_value=time_value)
-                except ValueError:
-                    pass
+            # ── WIND DIRECTION ──────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/wind/windDirectionBearing/directionBearing"))
+            if v is not None:
+                results["wind_direction"] = MeasuredValue(int(v), time_value=time_value)
                 continue
 
-            # WIND GUST (maximumWindSpeed)
-            gust = find_path(pq, "basicData/wind/maximumWindSpeed/windSpeed")
-            if gust is not None and (gust.text or "").strip():
-                try:
-                    results["wind_gust"] = MeasuredValue(
-                        float(gust.text.strip()),
-                        time_value=time_value,
-                        period_start=period_start,
-                        period_end=period_end,
+            # ── WIND GUST (maximumWindSpeed) ─────────────────────────────────────
+            v = _float(find_path(pq, "basicData/wind/maximumWindSpeed/windSpeed"))
+            if v is not None:
+                results["wind_gust"] = MeasuredValue(
+                    v, time_value=time_value,
+                    period_start=period_start, period_end=period_end,
+                )
+                continue
+
+            # ── WIND SPEED ───────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/wind/windSpeed/windSpeed"))
+            if v is not None:
+                results["wind_speed"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── PRECIPITATION INTENSITY ──────────────────────────────────────────
+            # index 2501 / 1401 / 1301 – pick first non-None, prefer 2501 (instant)
+            # We only store one value; if already stored we keep the first.
+            v = _float(find_path(pq, "basicData/precipitationDetail/precipitationIntensity/millimetresPerHourIntensity"))
+            if v is not None and "precipitation_intensity" not in results:
+                results["precipitation_intensity"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── ROAD SURFACE CONDITION (text enum) ──────────────────────────────
+            cond_node = find_path(pq, "basicData/weatherRelatedRoadConditionType")
+            if cond_node is not None and _txt(cond_node) is not None:
+                if "road_surface_condition" not in results:
+                    results["road_surface_condition"] = MeasuredValue(
+                        _txt(cond_node), time_value=time_value
                     )
-                except ValueError:
-                    pass
                 continue
 
-            # WIND SPEED (windSpeed)
-            ws = find_path(pq, "basicData/wind/windSpeed/windSpeed")
-            if ws is not None and (ws.text or "").strip():
-                try:
-                    results["wind_speed"] = MeasuredValue(float(ws.text.strip()), time_value=time_value)
-                except ValueError:
-                    pass
+            # ── ROAD SURFACE TEMPERATURE ─────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/roadSurfaceConditionMeasurements/roadSurfaceTemperature/temperature"))
+            if v is not None and "road_surface_temperature" not in results:
+                results["road_surface_temperature"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── FRICTION ─────────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/roadSurfaceConditionMeasurements/friction/friction"))
+            if v is not None and "road_surface_friction" not in results:
+                results["road_surface_friction"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── WATER FILM ───────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/roadSurfaceConditionMeasurements/waterFilmThickness/distance"))
+            if v is not None and "road_surface_water_film" not in results:
+                results["road_surface_water_film"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── ICE LAYER ────────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/roadSurfaceConditionMeasurements/iceLayerThickness/distance"))
+            if v is not None and "road_surface_ice_layer" not in results:
+                results["road_surface_ice_layer"] = MeasuredValue(v, time_value=time_value)
+                continue
+
+            # ── SNOW DEPTH ───────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/roadSurfaceConditionMeasurements/depthOfSnow/distance"))
+            if v is not None and "road_surface_snow_depth" not in results:
+                results["road_surface_snow_depth"] = MeasuredValue(v, time_value=time_value)
                 continue
 
         return results

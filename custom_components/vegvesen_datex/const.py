@@ -11,9 +11,7 @@ CONF_QUERY = "query"
 CONF_SITE_FILTER = "site_filter"
 CONF_KNOWN_STRETCH = "known_stretch"
 
-# Optional entity keys (not always exposed)
-ENTITY_PRESSURE = "pressure"
-ENTITY_PRECIP_INTENSITY = "precip_intensity"
+# (previously ENTITY_PRESSURE / ENTITY_PRECIP_INTENSITY were draft stubs)
 
 # Options storage
 CONF_SEGMENTS = "segments"
@@ -41,8 +39,19 @@ ENTITY_CLOSED = "closed"
 ENTITY_TEMPERATURE = "temperature"
 ENTITY_HUMIDITY = "humidity"
 ENTITY_WIND_SPEED = "wind_speed"
-ENTITY_WIND_GUST = "wind_gust"            # <-- NY
+ENTITY_WIND_GUST = "wind_gust"
 ENTITY_WIND_DIRECTION = "wind_direction"
+
+# Nedbør
+ENTITY_PRECIPITATION_INTENSITY = "precipitation_intensity"
+
+# Føreforhold
+ENTITY_ROAD_SURFACE_CONDITION = "road_surface_condition"   # tekst-status (snow/wet/dry/…)
+ENTITY_ROAD_SURFACE_TEMPERATURE = "road_surface_temperature"
+ENTITY_ROAD_SURFACE_FRICTION = "road_surface_friction"
+ENTITY_ROAD_SURFACE_WATER_FILM = "road_surface_water_film"
+ENTITY_ROAD_SURFACE_ICE_LAYER = "road_surface_ice_layer"
+ENTITY_ROAD_SURFACE_SNOW_DEPTH = "road_surface_snow_depth"
 
 # Attributes
 ATTR_MESSAGE = "message"

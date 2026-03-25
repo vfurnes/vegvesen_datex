@@ -73,6 +73,19 @@ class _DatexRadiusEventMarker(GeoLocationEntity):
         return events[idx0]
 
     @property
+    def source(self) -> str:
+        return DOMAIN
+
+    @property
+    def distance(self) -> float | None:
+        """Distance in metres – used by HA for sorting in the map panel."""
+        ev = self._get_event()
+        if ev is None:
+            return None
+        dkm = ev.get("distance_km")
+        return float(dkm) * 1000 if dkm is not None else None
+
+    @property
     def available(self) -> bool:
         # Only show marker when we have an event for this slot and the coordinator is healthy
         return self.coordinator.last_update_success and self._get_event() is not None
