@@ -68,7 +68,7 @@ class _DatexRadiusEventTracker(TrackerEntity):
         self.base_name = base_name
         self.slot = slot
 
-        self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_grouped_event_{slot.index}"
+        self._attr_unique_id = f"{coordinator.config_entry_id}_{segment_id}_event_{slot.index}"
         self._attr_name = f"Hendelse {slot.index}"
 
     def _get_grouped_events(self) -> list[dict[str, Any]]:
@@ -126,9 +126,10 @@ class _DatexRadiusEventTracker(TrackerEntity):
         grouped_list = list(grouped.values())
 
         def sort_key(item: dict[str, Any]) -> tuple:
+            dist = item.get("distance_km")
             return (
                 0 if item.get("closed") else 1,
-                float(item.get("distance_km") or 9999),
+                float(dist) if dist is not None else 9999.0,
                 str(item.get("road") or ""),
             )
 
@@ -168,7 +169,21 @@ class _DatexRadiusEventTracker(TrackerEntity):
 
     @property
     def location_name(self) -> str | None:
-        return "home" if self._get_event() is not None else None
+        ev = self._get_event()
+        if not ev:
+            return None
+
+        road = ev.get("road") or ev.get("label") or "Hendelse"
+        what_list = ev.get("what_list") or []
+        dkm = ev.get("distance_km")
+
+        parts = [f"{self.slot.index}.", str(road)]
+        if what_list:
+            parts.append("–")
+            parts.append(", ".join(str(w) for w in what_list if w))
+        if dkm is not None:
+            parts.append(f"({dkm} km)")
+        return " ".join(parts)
 
     @property
     def icon(self) -> str:
