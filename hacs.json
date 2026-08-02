@@ -3,5 +3,5 @@
   "content_in_root": false,
   "domains": ["vegvesen_datex"],
   "country": "NO",
-  "homeassistant": "2024.6.0"
+  "homeassistant": "2025.3.0"
 }

@@ -4,7 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -73,30 +77,34 @@ async def async_setup_entry(
             site_name = seg.get(CONF_SITE_NAME) or seg_name
 
             _W = _WeatherValueSensor  # shorthand
+            _M = SensorStateClass.MEASUREMENT
             if ENTITY_HUMIDITY in selected:
-                entities.append(_W(coordinator, site_id, site_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY))
+                entities.append(_W(coordinator, site_id, site_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY, state_class=_M))
             if ENTITY_TEMPERATURE in selected:
-                entities.append(_W(coordinator, site_id, site_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
+                entities.append(_W(coordinator, site_id, site_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, state_class=_M))
             if ENTITY_WIND_DIRECTION in selected:
-                entities.append(_W(coordinator, site_id, site_name, "wind_direction", "Vindretning", DEGREE, None))
+                # WIND_DIRECTION permits no state class at all - giving it one
+                # makes Home Assistant reject the combination.
+                entities.append(_W(coordinator, site_id, site_name, "wind_direction", "Vindretning", DEGREE, SensorDeviceClass.WIND_DIRECTION, state_class=None))
             if ENTITY_WIND_SPEED in selected:
-                entities.append(_W(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, None))
+                entities.append(_W(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, SensorDeviceClass.WIND_SPEED, state_class=_M))
             if ENTITY_WIND_GUST in selected:
-                entities.append(_W(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, None, include_period=True))
+                entities.append(_W(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, SensorDeviceClass.WIND_SPEED, state_class=_M, include_period=True))
             if ENTITY_PRECIPITATION_INTENSITY in selected:
-                entities.append(_W(coordinator, site_id, site_name, "precipitation_intensity", "Nedbørsintensitet", "mm/h", None))
+                entities.append(_W(coordinator, site_id, site_name, "precipitation_intensity", "Nedbørsintensitet", "mm/h", SensorDeviceClass.PRECIPITATION_INTENSITY, state_class=_M))
             if ENTITY_ROAD_SURFACE_CONDITION in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_condition", "Føreforhold", None, None))
+                # Free text, so neither a device class nor a state class applies.
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_condition", "Føreforhold", None, None, state_class=None))
             if ENTITY_ROAD_SURFACE_TEMPERATURE in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_temperature", "Vegbanetemperat.", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_temperature", "Vegbanetemperat.", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, state_class=_M))
             if ENTITY_ROAD_SURFACE_FRICTION in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_friction", "Friksjon", None, None))
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_friction", "Friksjon", None, None, state_class=_M))
             if ENTITY_ROAD_SURFACE_WATER_FILM in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_water_film", "Vannfilm", "m", None))
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_water_film", "Vannfilm", "m", None, state_class=_M))
             if ENTITY_ROAD_SURFACE_ICE_LAYER in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_ice_layer", "Islag", "m", None))
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_ice_layer", "Islag", "m", None, state_class=_M))
             if ENTITY_ROAD_SURFACE_SNOW_DEPTH in selected:
-                entities.append(_W(coordinator, site_id, site_name, "road_surface_snow_depth", "Snødybde", "m", None))
+                entities.append(_W(coordinator, site_id, site_name, "road_surface_snow_depth", "Snødybde", "m", None, state_class=_M))
 
         elif item_type in (TYPE_SITUATION, TYPE_RADIUS):
             if ENTITY_STATUS in selected:
@@ -125,6 +133,7 @@ class _WeatherValueSensor(SensorEntity):
         name_suffix: str,
         unit: str | None,
         device_class: SensorDeviceClass | None,
+        state_class: SensorStateClass | None = None,
         include_period: bool = False,
     ) -> None:
         self.coordinator = coordinator
@@ -136,6 +145,9 @@ class _WeatherValueSensor(SensorEntity):
         self._attr_unique_id = f"{coordinator.config_entry_id}_{site_id}_{key}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
+        # Without a state class the readings never reach long-term statistics,
+        # so history is limited to whatever the recorder still holds.
+        self._attr_state_class = state_class
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"weather_site_{site_id}")},
