@@ -7,7 +7,7 @@ Kobler Home Assistant mot **Statens vegvesen sine DATEX II (v3.x) data** og gir 
 - 🗺 **Kartmarkører** som dukker opp og forsvinner med hendelsene
 - 📋 **Ferdig formatert hendelsestekst** til dashbord og varsler
 
-Integrasjonen er utviklet i tett samarbeid med ChatGPT — både kode og dokumentasjon 😊
+Integrasjonen er utviklet i tett samarbeid med ChatGPT/Claude — både kode og dokumentasjon 😊
 
 ---
 
