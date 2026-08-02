@@ -32,7 +32,7 @@ from .const import (
 from .coordinator import DatexCoordinator
 from .datex_client import DatexClient
 
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "device_tracker"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "geo_location"]
 
 
 STORE_VERSION = 1

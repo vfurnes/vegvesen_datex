@@ -1,188 +1,198 @@
-# vegvesen_datex
+# Statens vegvesen DATEX — Home Assistant
 
-Home Assistant -- Statens vegvesen DATEX II integration
+Kobler Home Assistant mot **Statens vegvesen sine DATEX II (v3.x) data** og gir deg:
 
-Integrasjonen er utviklet i tett samarbeid med ChatGPT -- både kode og
-dokumentasjon 😊
+- 🌦 **Vegværstasjoner** — temperatur, vind, luftfuktighet, føreforhold
+- 🚧 **Trafikkhendelser innenfor en radius** fra et valgt punkt, f.eks. 20 km hjemmefra
+- 🗺 **Kartmarkører** som dukker opp og forsvinner med hendelsene
+- 📋 **Ferdig formatert hendelsestekst** til dashbord og varsler
 
-------------------------------------------------------------------------
+Integrasjonen er utviklet i tett samarbeid med ChatGPT — både kode og dokumentasjon 😊
 
-# Statens vegvesen DATEX -- Home Assistant integration
+---
 
-Denne integrasjonen kobler Home Assistant mot **Statens vegvesen sine
-DATEX II (v3.x) data** og gjør det mulig å vise:
+## 🔑 Krav
 
--   🌦 Vegværstasjoner (temperatur, vind, luftfuktighet m.m.)
--   🚧 Trafikkhendelser innenfor valgt radius (f.eks. 20 km hjemmefra)
--   🗺 Kartmarkører for aktive hendelser
--   📋 Strukturert hendelsesliste klar for dashboard og automasjoner
--   ♻️ Automatisk opprydding når hendelser forsvinner
+- **Home Assistant 2025.3.0** eller nyere
+- **Tilgang til Statens vegvesen sitt DATEX-API** — brukernavn og passord, bestilles hos Statens vegvesen
 
-Integrasjonen er laget for privat bruk i Home Assistant, men kan også
-brukes i andre ikke-kommersielle prosjekter.
+Offisiell DATEX-dokumentasjon:
+<https://git.vegvesen.no/projects/DATEX2/repos/datex2-spesifications/browse/3.1>
 
-------------------------------------------------------------------------
+---
 
-# ✨ Funksjoner
+## 📦 Installasjon
 
-## 🌦 Værstasjoner (MeasuredDataPublication)
+### HACS (anbefalt)
 
-For hver valgt målestasjon opprettes sensorer for:
+1. HACS → ⋮ → **Egendefinerte repositorier**
+2. Legg til `https://github.com/vfurnes/vegvesen_datex`, kategori **Integration**
+3. Installer **Statens vegvesen DATEX**
+4. Start Home Assistant på nytt
 
--   Temperatur (°C)
--   Luftfuktighet (%)
--   Vindstyrke (m/s)
--   Vindkast (m/s)
--   Vindretning (°)
+### Manuelt
 
-Alle sensorer: - Har korrekt `device_class` - Bruker
-`state_class: measurement` - Har native units - Inneholder metadata som
-siste måletidspunkt
+Kopier `custom_components/vegvesen_datex` til `/config/custom_components/` og start om.
 
-------------------------------------------------------------------------
+Legg deretter til integrasjonen under **Innstillinger → Enheter og tjenester → Legg til
+integrasjon**. Du oppgir DATEX-brukernavn og passord, og kan så legge til så mange
+værstasjoner og radiusområder du vil.
 
-## 🚧 Trafikkhendelser innen radius (SituationPublication)
+---
 
-Du kan konfigurere en radius (f.eks. 20 km fra hjemmeadresse).
+## ✨ Hva du får
 
-For hver aktiv hendelse hentes:
+### 🌦 Værstasjoner
 
--   Veistykke (f.eks. F616 -- Hornelsvegen)
--   Type hendelse (Accident, Roadworks, Maintenance, Closure, osv.)
--   Sist oppdatert tidspunkt
--   Starttid
--   Forventet sluttid (der tilgjengelig)
--   Koordinater (lat/lon)
--   Avstand fra valgt referansepunkt
+For hver valgte målestasjon opprettes de sensorene stasjonen faktisk leverer:
 
-------------------------------------------------------------------------
+| Sensor | Enhet | `device_class` | `state_class` |
+|---|---|---|---|
+| Temperatur | °C | `temperature` | `measurement` |
+| Luftfuktighet | % | `humidity` | `measurement` |
+| Vindstyrke | m/s | `wind_speed` | `measurement` |
+| Vindkast | m/s | `wind_speed` | `measurement` |
+| Vindretning | ° | `wind_direction` | — |
+| Nedbørsintensitet | mm/h | `precipitation_intensity` | `measurement` |
+| Vegbanetemperatur | °C | `temperature` | `measurement` |
+| Føreforhold | — | — | — |
+| Friksjon, vannfilm, islag, snødybde | m | — | `measurement` |
 
-## 📋 Områdesensor (Area Summary Sensor)
+Alle måleverdier havner i langtidsstatistikk. Vindretning får bevisst ingen
+`state_class`, siden Home Assistant ikke tillater det for retningsangivelser.
 
-Eksempel:
+Hver sensor har attributtet `sist_oppdatert` med måletidspunktet fra DATEX.
+Vindkast har i tillegg `periode_start` og `periode_slutt`.
 
-sensor.20km_hjemmefra_hendelse
+> **Merk:** ikke alle stasjoner leverer alt. Rv 15 Måløybrua publiserer for eksempel
+> temperatur, luftfuktighet og **vindkast**, men verken vindstyrke eller vindretning.
+> Sensorer for målinger stasjonen ikke sender vil stå som `unknown`. Det er ikke en
+> feil i integrasjonen — sjekk hva stasjonen faktisk viser på vegvesen.no.
 
-State: 2 hendelser
+### 🚧 Trafikkhendelser innenfor radius
 
-Attributes: - matched - message (strukturert liste) - lines
-(dashboard-klar tekst)
+Velg en Home Assistant-sone som midtpunkt og en radius i km. Du får:
 
-`lines` er ferdig formatert og egnet direkte til visning i dashboard
-eller varsler.
+| Entitet | Tilstand | Nyttige attributter |
+|---|---|---|
+| `sensor.<navn>_status` | antall hendelser | `matched`, `radius_km`, `zone`, `center` |
+| `sensor.<navn>_hendelse` | `"3 hendelser"` | `matched`, `message` (strukturert liste) |
+| `binary_sensor.<navn>_stengt` | `on` hvis en vei er stengt | |
+| `geo_location.*` | avstand i km | se under |
 
-------------------------------------------------------------------------
+### 🗺 Kartmarkører
 
-## 🗺 Kartmarkører (slot-basert modell)
+Det opprettes **én markør per hendelse** — ingen faste plasser, ingen øvre grense.
+Markøren fjernes helt når hendelsen er over, og oppføringen slettes fra
+entitetsregisteret, så det samler seg ikke opp gamle entiteter.
 
-For hvert radius-oppsett opprettes faste "slots":
+Hendelser som deler vei og nøyaktig posisjon slås sammen til én markør. DATEX
+publiserer ofte flere meldinger for samme fysiske veiarbeid — «Vedlikeholdsarbeid»
+og «Vei-/feltregulering» på samme punkt — og uten sammenslåing ville de blitt
+liggende oppå hverandre på kartet.
 
-geo_location.20km_hjemmefra_1\
-geo_location.20km_hjemmefra_2\
-...\
-geo_location.20km_hjemmefra_10
+Attributter per markør:
 
-Egenskaper:
+| Attributt | Beskrivelse |
+|---|---|
+| `event_text` | ferdig visningstekst: `F614 – Hornelsvegen \| Vedlikeholdsarbeid (17.47 km)` |
+| `road`, `road_number`, `road_name` | veien hendelsen gjelder |
+| `what`, `what_list` | hendelsestype(r) |
+| `closed` | `true` hvis veien er stengt |
+| `event_count` | antall DATEX-meldinger slått sammen i markøren |
+| `distance_km` | avstand fra midtpunktet |
+| `start_time`, `expected_end_time`, `last_update` | tidspunkter fra DATEX |
 
--   Sortert nærmest først
--   Kun aktive hendelser fyller slots
--   Ubrukte slots blir `unavailable`
--   Ingen "ghost entities" når hendelser forsvinner
+---
 
-Dette gir stabil entity-ID og korrekt livssyklus.
+## 🗺 Dashbord-eksempler
 
-------------------------------------------------------------------------
+### Kart
 
-# 🔑 Krav
+Kartet henter markørene selv — du slipper å ramse opp entiteter:
 
--   Home Assistant (nyeste versjon anbefalt)
--   Tilgang til Statens vegvesen DATEX API
-    -   Krever brukernavn og passord
-    -   Kan bestilles hos Statens vegvesen
-
-Offisiell DATEX-dokumentasjon:\
-https://git.vegvesen.no/projects/DATEX2/repos/datex2-spesifications/browse/3.1
-
-------------------------------------------------------------------------
-
-# 📦 Installasjon
-
-## Manuell installasjon
-
-1.  Last ned eller klon repoet
-2.  Kopier:
-
-custom_components/vegvesen_datex
-
-til:
-
-/config/custom_components/
-
-3.  Start Home Assistant på nytt
-4.  Legg til integrasjonen via:
-
-Innstillinger → Enheter og tjenester → Legg til integrasjon
-
-------------------------------------------------------------------------
-
-# 🗺 Dashboard-eksempel
-
-## Kart
-
-``` yaml
+```yaml
 type: map
 title: Hendelser (20 km)
-entities:
-  - geo_location.20km_hjemmefra_1
-  - geo_location.20km_hjemmefra_2
-  - geo_location.20km_hjemmefra_3
+geo_location_sources:
+  - vegvesen_datex
 ```
 
-## Liste (Mushroom)
+### Liste over hendelser
 
-``` yaml
-type: custom:mushroom-template-card
-primary: Hendelser innen 20 km
-secondary: >
-  {% set lines = state_attr('sensor.20km_hjemmefra_hendelse','lines') or [] %}
-  {% if lines|length == 0 %}
+Stengte veier først, deretter nærmest først:
+
+```yaml
+type: markdown
+content: >
+  {% set entities = states.geo_location
+    | selectattr('attributes.source', 'eq', 'vegvesen_datex')
+    | selectattr('attributes.distance_km', 'defined')
+    | sort(attribute='attributes.distance_km')
+    | sort(attribute='attributes.closed', reverse=true)
+    | map(attribute='entity_id') | list %}
+  {% if entities | count == 0 %}
     Ingen aktive hendelser
   {% else %}
-    {% for l in lines %}
-      {{ loop.index }}. {{ l }}
-      {% if not loop.last %}{{ '\n' }}{% endif %}
+    {% for e in entities %}
+  {{ loop.index }}. {{ state_attr(e, 'event_text') }}
     {% endfor %}
   {% endif %}
-multiline_secondary: true
-icon: mdi:map-marker-alert
 ```
 
-------------------------------------------------------------------------
+Vil du bare vise de fem nærmeste, bytt `{% for e in entities %}` med
+`{% for e in entities[:5] %}`.
 
-# 🚧 Status
+### Vindvarsel for en bru
 
-Integrasjonen er i aktiv utvikling.
+```yaml
+type: custom:mushroom-template-card
+primary: Måløybrua vindstatus
+secondary: >
+  {% set gust = states('sensor.rv_15_maloybrua_vindkast') | float(0) %}
+  {% if gust >= 28 %}Fare for stengt bro
+  {% elif gust >= 20 %}Kraftig vind
+  {% elif gust >= 10 %}Moderat vind
+  {% else %}Rolige forhold{% endif %} — {{ gust | round(1) }} m/s
+icon: mdi:weather-windy
+```
 
-Planlagte forbedringer:
+Krever [Mushroom](https://github.com/piitaya/lovelace-mushroom). Kart- og
+markdown-eksemplene over bruker bare innebygde kort.
 
--   Severity-mapping (Low / Medium / High)
--   Spesialisert "Bro-overvåking"-modus (vindvarsler)
--   Filtrering per vegnummer
--   Forbedret klassifisering av hendelsestyper
--   HACS-ready release
+---
 
-------------------------------------------------------------------------
+## ⚠️ Oppgradering til 0.3.0
 
-# 🤝 Bidrag
+Hendelser var tidligere `device_tracker`-entiteter. De er nå `geo_location`, som er
+det Home Assistant faktisk har ment for kartmarkører — og som ga oss dynamiske
+markører og ryddig opprydding på kjøpet.
 
-Bidrag er svært velkomne!
+**Dette er en bruddendring.** Etter oppgradering må du:
 
--   Issues for feil og forbedringer
--   Pull requests for nye funksjoner
--   Testere med DATEX-tilgang er spesielt verdifulle
+1. Bytte `entities:` med `geo_location_sources:` i kartkortene dine
+2. Erstatte oppramsede `device_tracker.*`-ID-er i maler med filteret vist over
+3. Slette de gamle `device_tracker`-entitetene under **Innstillinger → Enheter og
+   tjenester → Entiteter** (filtrer på utilgjengelige)
 
-------------------------------------------------------------------------
+Samtidig fikk værsensorene `state_class`, så de begynner å bygge langtidsstatistikk
+fra og med oppgraderingen. Historikk fra før finnes ikke.
 
-# 📄 Lisens
+---
 
-MIT License
+## 🚧 Videre planer
+
+- Severity-mapping (lav / middels / høy)
+- Filtrering per vegnummer
+- Bedre klassifisering av hendelsestyper
+- Dynamiske markører uten fast øvre grense — ✅ gjort i 0.3.0
+
+---
+
+## 🤝 Bidrag
+
+Bidrag er svært velkomne — issues, pull requests, og særlig testere med DATEX-tilgang.
+
+## 📄 Lisens
+
+MIT
