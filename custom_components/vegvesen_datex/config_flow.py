@@ -22,6 +22,7 @@ from .const import (
     TYPE_SITUATION,
     TYPE_WEATHER,
     TYPE_RADIUS,
+    TYPE_TRAVEL_TIME,
     CONF_SEGMENT_ID,
     CONF_SEGMENT_NAME,
     CONF_SEGMENT_QUERY,
@@ -47,6 +48,13 @@ from .const import (
     ENTITY_ROAD_SURFACE_WATER_FILM,
     ENTITY_ROAD_SURFACE_ICE_LAYER,
     ENTITY_ROAD_SURFACE_SNOW_DEPTH,
+    ENTITY_TRAVEL_TIME,
+    ENTITY_FREE_FLOW_TRAVEL_TIME,
+    ENTITY_TRAVEL_TIME_DELAY,
+    ENTITY_FREE_FLOW_SPEED,
+    ENTITY_TRAFFIC_STATUS,
+    ENTITY_TRAVEL_TIME_TREND,
+    ENTITY_TRAVEL_TIME_TYPE,
 )
 
 from .datex_client import DatexClient
@@ -113,8 +121,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         self._site_filter: str = ""
         self._site_options: dict[str, str] = {}
-        self._weather_site_id: str | None = None
-        self._weather_site_name: str | None = None
+        self._picked_site_id: str | None = None
+        self._picked_site_name: str | None = None
 
         self._radius_zone: str = "zone.home"
         self._radius_km: int = 20
@@ -125,7 +133,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         summary = self._format_segment_summary()
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_situation", "add_weather", "add_radius", "edit_remove"],
+            menu_options=["add_situation", "add_weather", "add_travel_time", "add_radius", "edit_remove"],
             description_placeholders={"segment_summary": summary},
         )
 
@@ -141,7 +149,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 continue
             t = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
             name = seg.get(CONF_SEGMENT_NAME) or seg.get(CONF_SEGMENT_QUERY) or seg.get(CONF_SITE_NAME) or "Ukjent"
-            prefix = "Veistykke" if t == TYPE_SITUATION else ("Nærområde" if t == TYPE_RADIUS else "Målested")
+            prefix = {
+                TYPE_SITUATION: "Veistykke",
+                TYPE_RADIUS: "Nærområde",
+                TYPE_TRAVEL_TIME: "Reisetid",
+            }.get(t, "Målested")
             opts.append(selector.SelectOptionDict(value=sid, label=f"{prefix}: {name}"))
 
         schema = vol.Schema(
@@ -165,7 +177,7 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(
                 step_id="edit_remove",
                 data_schema=schema,
-                description_placeholders={"segment_summary": self._segment_summary()},
+                description_placeholders={"segment_summary": self._format_segment_summary()},
             )
 
         item_id = user_input["item_id"]
@@ -186,9 +198,9 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         self._segment_query = seg.get(CONF_SEGMENT_QUERY) or ""
         self._selected_entities = list(seg.get(CONF_SEGMENT_ENTITIES) or [])
 
-        if self._adding_type == TYPE_WEATHER:
-            self._weather_site_id = seg.get(CONF_SITE_ID)
-            self._weather_site_name = seg.get(CONF_SITE_NAME) or ""
+        if self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME):
+            self._picked_site_id = seg.get(CONF_SITE_ID)
+            self._picked_site_name = seg.get(CONF_SITE_NAME) or ""
             return await self.async_step_site()
 
         if self._adding_type == TYPE_RADIUS:
@@ -237,8 +249,16 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         self._adding_type = TYPE_WEATHER
         return await self.async_step_site()
 
+    async def async_step_add_travel_time(self, user_input=None) -> FlowResult:
+        self._adding_type = TYPE_TRAVEL_TIME
+        return await self.async_step_site()
+
     async def async_step_site(self, user_input=None) -> FlowResult:
-        self._adding_type = TYPE_WEATHER
+        """Filter + pick a predefined location: a weather station or a travel-time route.
+
+        Shared between TYPE_WEATHER and TYPE_TRAVEL_TIME - self._adding_type (set by
+        the caller before entering this step) decides which DATEX table to query.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -246,7 +266,10 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         try:
             client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
-            sites = await client.list_sites(self._site_filter)
+            if self._adding_type == TYPE_TRAVEL_TIME:
+                sites = await client.list_travel_time_locations(self._site_filter)
+            else:
+                sites = await client.list_sites(self._site_filter)
             self._site_options = {sid: name for sid, name in sites}
         except Exception as err:
             _LOGGER.exception("vegvesen_datex: list_sites failed: %s", err)
@@ -263,9 +286,9 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
         if self._site_options:
-            # Placeholder øverst for å hindre autovalg av første målestasjon
+            # Placeholder øverst for å hindre autovalg av første oppføring
             select_options = [
-                selector.SelectOptionDict(value="", label="— Velg målestasjon —"),
+                selector.SelectOptionDict(value="", label="— Velg —"),
                 *[
                     selector.SelectOptionDict(value=str(sid), label=str(name))
                     for sid, name in self._site_options.items()
@@ -294,8 +317,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
 
         # Ekte valg -> gå videre
-        self._weather_site_id = site_id
-        self._weather_site_name = self._site_options.get(site_id) or site_id
+        self._picked_site_id = site_id
+        self._picked_site_name = self._site_options.get(site_id) or site_id
         return await self.async_step_entities()
 
     async def async_step_add_radius(self, user_input=None) -> FlowResult:
@@ -374,6 +397,19 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             defaults = [ENTITY_TEMPERATURE, ENTITY_HUMIDITY, ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION]
             return {"options": options, "defaults": defaults}
 
+        if t == TYPE_TRAVEL_TIME:
+            options = {
+                ENTITY_TRAVEL_TIME: "Reisetid",
+                ENTITY_TRAVEL_TIME_DELAY: "Forsinkelse (vs. fri flyt)",
+                ENTITY_FREE_FLOW_TRAVEL_TIME: "Reisetid uten kø (fri flyt)",
+                ENTITY_FREE_FLOW_SPEED: "Fri flyt-hastighet",
+                ENTITY_TRAFFIC_STATUS: "Trafikkstatus",
+                ENTITY_TRAVEL_TIME_TREND: "Trend",
+                ENTITY_TRAVEL_TIME_TYPE: "Beregningstype",
+            }
+            defaults = [ENTITY_TRAVEL_TIME, ENTITY_TRAVEL_TIME_DELAY]
+            return {"options": options, "defaults": defaults}
+
         # situation + radius
         options = {
             ENTITY_STATUS: "Status",
@@ -394,14 +430,14 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SEGMENT_ENTITIES: list(self._selected_entities or []),
         }
 
-        if (self._adding_type == TYPE_WEATHER) and (not self._segment_name):
-            # Bruk målestasjonens navn som segment-navn hvis ikke brukeren har satt eget
-            self._segment_name = self._weather_site_name or self._weather_site_id or "DATEX"
+        if (self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME)) and (not self._segment_name):
+            # Bruk stasjonens/strekningens navn som segment-navn hvis ikke brukeren har satt eget
+            self._segment_name = self._picked_site_name or self._picked_site_id or "DATEX"
             item[CONF_SEGMENT_NAME] = self._segment_name
 
-        if self._adding_type == TYPE_WEATHER:
-            item[CONF_SITE_ID] = self._weather_site_id
-            item[CONF_SITE_NAME] = self._weather_site_name or self._weather_site_id
+        if self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME):
+            item[CONF_SITE_ID] = self._picked_site_id
+            item[CONF_SITE_NAME] = self._picked_site_name or self._picked_site_id
         elif self._adding_type == TYPE_RADIUS:
             item[CONF_RADIUS_ZONE] = self._radius_zone
             item[CONF_RADIUS_KM] = int(self._radius_km)

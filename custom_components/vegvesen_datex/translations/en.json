@@ -30,6 +30,7 @@
         "menu_options": {
           "add_situation": "Add road segment (status via search)",
           "add_weather": "Add weather station (weather data)",
+          "add_travel_time": "Add travel time route",
           "edit_remove": "Edit / remove existing",
           "add_radius": "Add nearby area (radius)"
         }
@@ -43,11 +44,11 @@
         }
       },
       "site": {
-        "title": "Select weather station",
-        "description": "Filter and select the station you want to monitor.",
+        "title": "Select measurement point",
+        "description": "Filter and select the weather station or travel-time route you want to monitor.",
         "data": {
           "site_filter": "Filter / search (optional)",
-          "site_id": "Station"
+          "site_id": "Item"
         }
       },
       "entities": {
