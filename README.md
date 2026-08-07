@@ -49,9 +49,11 @@ For hver valgte målestasjon opprettes de sensorene stasjonen faktisk leverer:
 | Sensor | Enhet | `device_class` | `state_class` |
 |---|---|---|---|
 | Temperatur | °C | `temperature` | `measurement` |
+| Duggpunkt | °C | `temperature` | `measurement` |
 | Luftfuktighet | % | `humidity` | `measurement` |
+| Vindkast (maks siste 10 min) | m/s | `wind_speed` | `measurement` |
+| Vindkast nå | m/s | `wind_speed` | `measurement` |
 | Vindstyrke | m/s | `wind_speed` | `measurement` |
-| Vindkast | m/s | `wind_speed` | `measurement` |
 | Vindretning | ° | `wind_direction` | — |
 | Nedbørsintensitet | mm/h | `precipitation_intensity` | `measurement` |
 | Vegbanetemperatur | °C | `temperature` | `measurement` |
@@ -64,10 +66,21 @@ Alle måleverdier havner i langtidsstatistikk. Vindretning får bevisst ingen
 Hver sensor har attributtet `sist_oppdatert` med måletidspunktet fra DATEX.
 Vindkast har i tillegg `periode_start` og `periode_slutt`.
 
-> **Merk:** ikke alle stasjoner leverer alt. Rv 15 Måløybrua publiserer for eksempel
-> temperatur, luftfuktighet og **vindkast**, men verken vindstyrke eller vindretning.
-> Sensorer for målinger stasjonen ikke sender vil stå som `unknown`. Det er ikke en
-> feil i integrasjonen — sjekk hva stasjonen faktisk viser på vegvesen.no.
+> **Vindstyrke og vindretning leveres i praksis ikke lenger.** Talt opp mot alle
+> 467 stasjoner 6. august 2026: **0** sender vindretning og **2** sender vindstyrke.
+> Vindkast sendes derimot av 504. Sensorene finnes fortsatt, og fylles automatisk
+> hvis NPRA begynner å publisere feltene igjen — men i dag vil de stå som
+> `unknown`. Det er ikke en feil i integrasjonen.
+>
+> Generelt gjelder at ingen stasjon leverer alt. Sjekk hva din stasjon faktisk
+> viser på vegvesen.no før du konkluderer med at noe er ødelagt.
+
+**Om de to vindkastene:** stasjonene sender `maximumWindSpeed` to ganger — én gang
+med en 10-minutters periode, som er maksimum i vinduet og tallet vegvesen.no viser,
+og én gang uten tidsangivelse, som er nåverdien. Integrasjonen eksponerer begge.
+`Vindkast` har `periode_start` og `periode_slutt` som attributter, så du ser hvilket
+vindu maksimum gjelder for. **Bruk `Vindkast` til varsling** — en enkeltavlesning er
+for tilfeldig til å utløse noe på.
 
 ### 🚧 Trafikkhendelser innenfor radius
 

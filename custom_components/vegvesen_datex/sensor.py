@@ -31,9 +31,11 @@ from .const import (
     ENTITY_STATUS,
     ENTITY_MESSAGE,
     ENTITY_TEMPERATURE,
+    ENTITY_DEW_POINT,
     ENTITY_HUMIDITY,
     ENTITY_WIND_SPEED,
     ENTITY_WIND_GUST,
+    ENTITY_WIND_GUST_CURRENT,
     ENTITY_WIND_DIRECTION,
     ENTITY_PRECIPITATION_INTENSITY,
     ENTITY_ROAD_SURFACE_CONDITION,
@@ -82,6 +84,8 @@ async def async_setup_entry(
                 entities.append(_W(coordinator, site_id, site_name, "humidity", "Luftfuktighet", PERCENTAGE, SensorDeviceClass.HUMIDITY, state_class=_M))
             if ENTITY_TEMPERATURE in selected:
                 entities.append(_W(coordinator, site_id, site_name, "temperature", "Temperatur", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, state_class=_M))
+            if ENTITY_DEW_POINT in selected:
+                entities.append(_W(coordinator, site_id, site_name, "dew_point_temperature", "Duggpunkt", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE, state_class=_M))
             if ENTITY_WIND_DIRECTION in selected:
                 # WIND_DIRECTION permits no state class at all - giving it one
                 # makes Home Assistant reject the combination.
@@ -90,6 +94,8 @@ async def async_setup_entry(
                 entities.append(_W(coordinator, site_id, site_name, "wind_speed", "Vindstyrke", UnitOfSpeed.METERS_PER_SECOND, SensorDeviceClass.WIND_SPEED, state_class=_M))
             if ENTITY_WIND_GUST in selected:
                 entities.append(_W(coordinator, site_id, site_name, "wind_gust", "Vindkast", UnitOfSpeed.METERS_PER_SECOND, SensorDeviceClass.WIND_SPEED, state_class=_M, include_period=True))
+            if ENTITY_WIND_GUST_CURRENT in selected:
+                entities.append(_W(coordinator, site_id, site_name, "wind_gust_current", "Vindkast nå", UnitOfSpeed.METERS_PER_SECOND, SensorDeviceClass.WIND_SPEED, state_class=_M))
             if ENTITY_PRECIPITATION_INTENSITY in selected:
                 entities.append(_W(coordinator, site_id, site_name, "precipitation_intensity", "Nedbørsintensitet", "mm/h", SensorDeviceClass.PRECIPITATION_INTENSITY, state_class=_M))
             if ENTITY_ROAD_SURFACE_CONDITION in selected:
@@ -112,7 +118,10 @@ async def async_setup_entry(
             if ENTITY_MESSAGE in selected:
                 entities.append(_SituationMessageSensor(coordinator, str(seg_id), seg_name))
 
-    async_add_entities(entities, True)
+    # No update_before_add: the coordinator has already done its first refresh
+    # in async_setup_entry, so forcing an update per entity only serialised
+    # waits and made platform setup exceed ten seconds.
+    async_add_entities(entities)
 
 
 @dataclass(frozen=True)
@@ -123,6 +132,11 @@ class _KeySpec:
 
 class _WeatherValueSensor(SensorEntity):
     _attr_has_entity_name = True
+    # The coordinator pushes updates through the listener registered in
+    # async_added_to_hass. Polling fetched nothing new - it only queued another
+    # refresh request and waited on the debouncer, which is what produced
+    # "Update of sensor.… is taking over 10 seconds".
+    _attr_should_poll = False
 
     def __init__(
         self,
@@ -195,6 +209,7 @@ class _WeatherValueSensor(SensorEntity):
 
 class _SituationBaseSensor(SensorEntity):
     _attr_has_entity_name = True
+    _attr_should_poll = False
 
     def __init__(self, coordinator: DatexCoordinator, segment_id: str, name: str) -> None:
         self.coordinator = coordinator

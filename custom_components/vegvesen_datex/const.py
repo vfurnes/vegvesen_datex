@@ -37,9 +37,13 @@ ENTITY_MESSAGE = "message"
 ENTITY_CLOSED = "closed"
 
 ENTITY_TEMPERATURE = "temperature"
+ENTITY_DEW_POINT = "dew_point_temperature"
 ENTITY_HUMIDITY = "humidity"
 ENTITY_WIND_SPEED = "wind_speed"
+# Stasjonene sender to maximumWindSpeed: én med en 10-minutters periode
+# (maksimum i vinduet) og én uten tid (nåverdi).
 ENTITY_WIND_GUST = "wind_gust"
+ENTITY_WIND_GUST_CURRENT = "wind_gust_current"
 ENTITY_WIND_DIRECTION = "wind_direction"
 
 # Nedbør

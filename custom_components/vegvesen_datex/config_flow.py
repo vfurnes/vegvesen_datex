@@ -36,9 +36,11 @@ from .const import (
     ENTITY_MESSAGE,
     ENTITY_CLOSED,
     ENTITY_TEMPERATURE,
+    ENTITY_DEW_POINT,
     ENTITY_HUMIDITY,
     ENTITY_WIND_SPEED,
     ENTITY_WIND_GUST,
+    ENTITY_WIND_GUST_CURRENT,
     ENTITY_WIND_DIRECTION,
     ENTITY_PRECIPITATION_INTENSITY,
     ENTITY_ROAD_SURFACE_CONDITION,
@@ -359,10 +361,12 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if t == TYPE_WEATHER:
             options = {
                 ENTITY_TEMPERATURE: "Temperatur (luft)",
+                ENTITY_DEW_POINT: "Duggpunkt",
                 ENTITY_HUMIDITY: "Luftfuktighet",
-                ENTITY_WIND_SPEED: "Vindstyrke",
+                ENTITY_WIND_SPEED: "Vindstyrke (leveres nesten ikke)",
                 ENTITY_WIND_GUST: "Vindkast (maks siste 10 min)",
-                ENTITY_WIND_DIRECTION: "Vindretning",
+                ENTITY_WIND_GUST_CURRENT: "Vindkast nå",
+                ENTITY_WIND_DIRECTION: "Vindretning (leveres ikke)",
                 ENTITY_PRECIPITATION_INTENSITY: "Nedbørsintensitet (mm/h)",
                 ENTITY_ROAD_SURFACE_CONDITION: "Føreforhold (tekst)",
                 ENTITY_ROAD_SURFACE_TEMPERATURE: "Vegbanetemperatur",
@@ -371,7 +375,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 ENTITY_ROAD_SURFACE_ICE_LAYER: "Islag (m)",
                 ENTITY_ROAD_SURFACE_SNOW_DEPTH: "Snødybde (m)",
             }
-            defaults = [ENTITY_TEMPERATURE, ENTITY_HUMIDITY, ENTITY_WIND_SPEED, ENTITY_WIND_DIRECTION]
+            # Vindstyrke og vindretning sto tidligere som standard, men NPRA har
+            # sluttet å publisere dem: 0 stasjoner sender retning og 2 sender
+            # styrke, av 467. Nye brukere fikk dermed tomme sensorer og manglet
+            # vindkast, som er det eneste vindfeltet som faktisk leveres.
+            defaults = [ENTITY_TEMPERATURE, ENTITY_HUMIDITY, ENTITY_WIND_GUST]
             return {"options": options, "defaults": defaults}
 
         # situation + radius

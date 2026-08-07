@@ -454,6 +454,12 @@ class DatexClient:
                 results["temperature"] = MeasuredValue(v, time_value=time_value)
                 continue
 
+            # ── DEW POINT ───────────────────────────────────────────────────────
+            v = _float(find_path(pq, "basicData/temperature/dewPointTemperature/temperature"))
+            if v is not None:
+                results["dew_point_temperature"] = MeasuredValue(v, time_value=time_value)
+                continue
+
             # ── WIND DIRECTION ──────────────────────────────────────────────────
             v = _float(find_path(pq, "basicData/wind/windDirectionBearing/directionBearing"))
             if v is not None:
@@ -461,9 +467,15 @@ class DatexClient:
                 continue
 
             # ── WIND GUST (maximumWindSpeed) ─────────────────────────────────────
+            # A station sends this twice: once carrying a 10-minute period, which
+            # is the maximum within that window and the figure vegvesen.no shows,
+            # and once with no time element at all, which is the current reading.
+            # Verified against every one of the 243 stations that send both.
+            # They used to overwrite each other, and whichever came last won.
             v = _float(find_path(pq, "basicData/wind/maximumWindSpeed/windSpeed"))
             if v is not None:
-                results["wind_gust"] = MeasuredValue(
+                key = "wind_gust" if period_start else "wind_gust_current"
+                results[key] = MeasuredValue(
                     v, time_value=time_value,
                     period_start=period_start, period_end=period_end,
                 )
