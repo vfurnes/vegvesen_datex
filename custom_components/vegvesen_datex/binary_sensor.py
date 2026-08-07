@@ -44,11 +44,14 @@ async def async_setup_entry(
         if ENTITY_CLOSED in selected:
             entities.append(VegvesenDatexActiveBinarySensor(coordinator, str(item_id), name))
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class VegvesenDatexActiveBinarySensor(BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    # The coordinator pushes updates through the listener registered in
+    # async_added_to_hass, so polling would only wait on its debouncer.
+    _attr_should_poll = False
 
     def __init__(self, coordinator: DatexCoordinator, item_id: str, name: str) -> None:
         self.coordinator = coordinator
