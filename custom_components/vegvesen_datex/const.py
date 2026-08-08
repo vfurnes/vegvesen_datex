@@ -19,6 +19,7 @@ CONF_ITEM_TYPE = "item_type"
 TYPE_SITUATION = "situation"
 TYPE_WEATHER = "weather"
 TYPE_RADIUS = "radius"
+TYPE_TRAVEL_TIME = "travel_time"
 
 CONF_SEGMENT_ID = "segment_id"
 CONF_SEGMENT_NAME = "segment_name"
@@ -57,6 +58,15 @@ ENTITY_ROAD_SURFACE_WATER_FILM = "road_surface_water_film"
 ENTITY_ROAD_SURFACE_ICE_LAYER = "road_surface_ice_layer"
 ENTITY_ROAD_SURFACE_SNOW_DEPTH = "road_surface_snow_depth"
 
+# Reisetid (travel time)
+ENTITY_TRAVEL_TIME = "travel_time"
+ENTITY_FREE_FLOW_TRAVEL_TIME = "free_flow_travel_time"
+ENTITY_TRAVEL_TIME_DELAY = "travel_time_delay"
+ENTITY_FREE_FLOW_SPEED = "free_flow_speed"
+ENTITY_TRAFFIC_STATUS = "traffic_status"
+ENTITY_TRAVEL_TIME_TREND = "travel_time_trend"
+ENTITY_TRAVEL_TIME_TYPE = "travel_time_type"
+
 # Attributes
 ATTR_MESSAGE = "message"
 ATTR_MATCHED = "matched"
@@ -76,5 +86,13 @@ WEATHER_SITE_TABLE_URL_DEFAULT = (
 
 MEASURED_WEATHER_URL_DEFAULT = (
     "https://datex-server-get-v3-1.atlas.vegvesen.no/datexapi/GetMeasuredWeatherData/pullsnapshotdata"
+)
+
+TRAVEL_TIME_LOCATIONS_URL_DEFAULT = (
+    "https://datex-server-get-v3-1.atlas.vegvesen.no/datexapi/GetPredefinedTravelTimeLocations/pullsnapshotdata"
+)
+
+TRAVEL_TIME_DATA_URL_DEFAULT = (
+    "https://datex-server-get-v3-1.atlas.vegvesen.no/datexapi/GetTravelTimeData/pullsnapshotdata"
 )
 

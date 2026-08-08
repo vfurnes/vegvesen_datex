@@ -19,6 +19,7 @@ from .const import (
     TYPE_WEATHER,
     TYPE_SITUATION,
     TYPE_RADIUS,
+    TYPE_TRAVEL_TIME,
 )
 from .datex_client import DatexClient
 
@@ -53,7 +54,7 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config_entry_id: str | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"weather": {}, "situation": {}}
+        data: dict[str, Any] = {"weather": {}, "situation": {}, "travel_time": {}}
 
         try:
             # WEATHER
@@ -66,6 +67,24 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 values = await self.client.fetch_measured_weather_site(str(site_id))
                 data["weather"][str(site_id)] = values
+
+            # TRAVEL TIME: a single nationwide snapshot covering every predefined
+            # location, so it's fetched once per cycle and parsed for all locations
+            # at once rather than re-fetched per configured item (unlike weather
+            # above, which only ever needs one site per call).
+            if any(seg.get(CONF_ITEM_TYPE) == TYPE_TRAVEL_TIME for seg in self.segments):
+                tt_xml = await self.client.fetch_travel_time_data()
+                all_travel_times = self.client.parse_travel_time_data(tt_xml)
+            else:
+                all_travel_times = {}
+
+            for seg in self.segments:
+                if seg.get(CONF_ITEM_TYPE) != TYPE_TRAVEL_TIME:
+                    continue
+                site_id = seg.get(CONF_SITE_ID)
+                if not site_id:
+                    continue
+                data["travel_time"][str(site_id)] = all_travel_times.get(str(site_id), {})
 
             # SITUATION (fetch once if needed)
             if any(seg.get(CONF_ITEM_TYPE) in (TYPE_SITUATION, TYPE_RADIUS) for seg in self.segments):

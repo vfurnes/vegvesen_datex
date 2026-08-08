@@ -30,6 +30,7 @@
         "menu_options": {
           "add_situation": "Legg til veistykke/strekning (status via søk)",
           "add_weather": "Legg til målestasjon (værdata)",
+          "add_travel_time": "Legg til reisetidsstrekning (reisetid)",
           "edit_remove": "Rediger / fjern eksisterende",
           "add_radius": "Legg til nærområde (radius)"
         }
@@ -43,11 +44,11 @@
         }
       },
       "site": {
-        "title": "Velg målestasjon",
-        "description": "Filtrer og velg vær-målestasjonen du vil overvåke.",
+        "title": "Velg målepunkt",
+        "description": "Filtrer og velg målestasjonen eller reisetidsstrekningen du vil overvåke.",
         "data": {
           "site_filter": "Filter / søk (valgfritt)",
-          "site_id": "Målestasjon"
+          "site_id": "Oppføring"
         }
       },
       "entities": {

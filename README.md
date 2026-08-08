@@ -3,6 +3,7 @@
 Kobler Home Assistant mot **Statens vegvesen sine DATEX II (v3.x) data** og gir deg:
 
 - 🌦 **Vegværstasjoner** — temperatur, vind, luftfuktighet, føreforhold
+- 🚗 **Reisetider** mellom faste målepunkter — reisetid, forsinkelse og trafikkstatus
 - 🚧 **Trafikkhendelser innenfor en radius** fra et valgt punkt, f.eks. 20 km hjemmefra
 - 🗺 **Kartmarkører** som dukker opp og forsvinner med hendelsene
 - 📋 **Ferdig formatert hendelsestekst** til dashbord og varsler
@@ -81,6 +82,31 @@ og én gang uten tidsangivelse, som er nåverdien. Integrasjonen eksponerer begg
 `Vindkast` har `periode_start` og `periode_slutt` som attributter, så du ser hvilket
 vindu maksimum gjelder for. **Bruk `Vindkast` til varsling** — en enkeltavlesning er
 for tilfeldig til å utløse noe på.
+
+### 🚗 Reisetider
+
+Statens vegvesen publiserer reisetider mellom faste målepunkter for Oslo, Bergen,
+Stavanger, Kristiansand, Trondheim, E18 (Oslo–Aust-Agder) og E6 (Ås–Kolomoen),
+oppdatert hvert 5. minutt. Velg ett målepunkt (en strekning) om gangen — legg til
+flere oppføringer for flere strekninger.
+
+| Sensor | Enhet | `device_class` | `state_class` |
+|---|---|---|---|
+| Reisetid | s | `duration` | `measurement` |
+| Reisetid uten kø (fri flyt) | s | `duration` | `measurement` |
+| Forsinkelse | s | `duration` | `measurement` |
+| Fri flyt-hastighet | km/h | `speed` | `measurement` |
+| Trafikkstatus | — | — | — |
+| Trend | — | — | — |
+| Beregningstype | — | — | — |
+
+**Forsinkelse** er utledet (reisetid minus reisetid uten kø) og finnes ikke direkte i
+DATEX-dataene. **Trafikkstatus**, **Trend** og **Beregningstype** er ren tekst rett fra
+DATEX (f.eks. `freeFlow`, `stable`, `estimated`) og vises uoversatt.
+
+Reisetid-sensoren har samme `sist_oppdatert`/`periode_start`/`periode_slutt`-attributter
+som værsensorene. Som med værstasjoner publiserer ikke alle strekninger alt — noen kan
+mangle trafikkstatus for eksempel.
 
 ### 🚧 Trafikkhendelser innenfor radius
 
