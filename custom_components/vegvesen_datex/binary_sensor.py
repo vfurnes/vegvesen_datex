@@ -5,6 +5,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySen
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import (
     DOMAIN,
@@ -58,6 +59,15 @@ class VegvesenDatexActiveBinarySensor(BinarySensorEntity):
         self.item_id = item_id
         self._attr_unique_id = f"{coordinator.config_entry_id}_{item_id}_active"
         self._attr_name = f"{name} Stengt"
+        # Same device identifier as _SituationBaseSensor (status/message sensors)
+        # for this item, so it's grouped with its siblings and gets cleaned up
+        # along with them if the item is ever removed via the options flow.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"situation_{item_id}")},
+            name=name,
+            manufacturer="Statens vegvesen",
+            model="DATEX II Situation Feed",
+        )
 
     @property
     def available(self) -> bool:

@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     DOMAIN,
@@ -186,7 +187,10 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         action = user_input["action"]
 
         if action == "remove":
+            removed = next((s for s in segments if s.get(CONF_SEGMENT_ID) == item_id), None)
             new_segments = [s for s in segments if s.get(CONF_SEGMENT_ID) != item_id]
+            if removed:
+                self._async_remove_item_devices(removed)
             return self.async_create_entry(title="", data={CONF_SEGMENTS: new_segments})
 
         # edit
@@ -279,12 +283,11 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             self._site_options = {}
 
         schema_dict: dict = {
-            vol.Optional(CONF_SITE_FILTER, default=self._site_filter): selector.TextSelector(
-                selector.TextSelectorConfig(
-                    label="Filtrer / søk (valgfritt) – trykk Send inn for å søke",
-                    placeholder="F.eks. Måløy, Eid, Stryn …",
-                )
-            ),
+            # Label and hint text come from the "site_filter" translation key, not
+            # from TextSelectorConfig - it has no label/placeholder fields, and
+            # passing them raises voluptuous.MultipleInvalid ("extra keys not
+            # allowed"), which HA's REST layer turns into a 400 on this step.
+            vol.Optional(CONF_SITE_FILTER, default=self._site_filter): selector.TextSelector(),
         }
 
         if self._site_options:
@@ -466,6 +469,36 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
 
         self._editing_id = None
         return new_segments
+
+    def _async_remove_item_devices(self, seg: dict) -> None:
+        """Drop the device(s) for a removed item so its entities disappear too.
+
+        Saving new options reloads the config entry, which stops *creating*
+        entities for a removed item - but Home Assistant doesn't purge the
+        registry on its own, so the device and its entities would otherwise
+        stay behind forever as unavailable ghosts (the same registry-orphan
+        problem geo_location.py already guards against for individual incident
+        markers). Removing the device cascades to remove every entity on it.
+        """
+        item_type = seg.get(CONF_ITEM_TYPE) or TYPE_SITUATION
+        seg_id = seg.get(CONF_SEGMENT_ID)
+
+        if item_type == TYPE_WEATHER:
+            keys = [f"weather_site_{seg.get(CONF_SITE_ID)}"]
+        elif item_type == TYPE_TRAVEL_TIME:
+            keys = [f"travel_time_{seg.get(CONF_SITE_ID)}"]
+        elif item_type == TYPE_RADIUS:
+            # Status/message/binary sensors live on "situation_<id>";
+            # geo_location incident markers live on their own "radius_<id>" device.
+            keys = [f"situation_{seg_id}", f"radius_{seg_id}"]
+        else:
+            keys = [f"situation_{seg_id}"]
+
+        registry = dr.async_get(self.hass)
+        for key in keys:
+            device = registry.async_get_device(identifiers={(DOMAIN, key)})
+            if device:
+                registry.async_remove_device(device.id)
 
     def _known_stretch_options(self) -> list[selector.SelectOptionDict]:
         data = (self.hass.data.get(DOMAIN, {}).get("_known_stretches") or {})

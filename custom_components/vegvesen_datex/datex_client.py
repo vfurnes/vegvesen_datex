@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
 
 import aiohttp
-import async_timeout
 import xml.etree.ElementTree as ET
 
 from homeassistant.core import HomeAssistant
@@ -111,7 +111,7 @@ class DatexClient:
         return self._Status(status="ok", is_closed=False)
 
     async def _get_text(self, url: str) -> str:
-        async with async_timeout.timeout(self._timeout):
+        async with asyncio.timeout(self._timeout):
             async with self._session.get(url, auth=self._auth) as resp:
                 resp.raise_for_status()
                 return await resp.text()
