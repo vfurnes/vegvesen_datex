@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
 
 import aiohttp
-import async_timeout
 import xml.etree.ElementTree as ET
 
 from homeassistant.core import HomeAssistant
@@ -15,6 +15,8 @@ from .const import (
     MEASURED_WEATHER_URL_DEFAULT,
     SITUATION_URL_DEFAULT,
     WEATHER_SITE_TABLE_URL_DEFAULT,
+    TRAVEL_TIME_DATA_URL_DEFAULT,
+    TRAVEL_TIME_LOCATIONS_URL_DEFAULT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +39,8 @@ class DatexClient:
         measured_weather_url: str = MEASURED_WEATHER_URL_DEFAULT,
         situation_url: str = SITUATION_URL_DEFAULT,
         weather_site_table_url: str = WEATHER_SITE_TABLE_URL_DEFAULT,
+        travel_time_locations_url: str = TRAVEL_TIME_LOCATIONS_URL_DEFAULT,
+        travel_time_data_url: str = TRAVEL_TIME_DATA_URL_DEFAULT,
         request_timeout: int = 30,
     ) -> None:
         self._session: aiohttp.ClientSession = async_get_clientsession(hass)
@@ -44,6 +48,8 @@ class DatexClient:
         self._measured_weather_url = measured_weather_url
         self._situation_url = situation_url
         self._weather_site_table_url = weather_site_table_url
+        self._travel_time_locations_url = travel_time_locations_url
+        self._travel_time_data_url = travel_time_data_url
         self._timeout = request_timeout
 
     # -------------------------
@@ -65,6 +71,22 @@ class DatexClient:
         # stable ordering: name then id
         sites.sort(key=lambda x: (x[1].lower(), x[0]))
         return sites
+
+    async def list_travel_time_locations(self, filter_text: str = "") -> list[tuple[str, str]]:
+        """List predefined travel time locations (id, name) from GetPredefinedTravelTimeLocations.
+
+        Returns a list of tuples suitable for dropdowns.
+        """
+        xml_text = await self._get_text(self._travel_time_locations_url)
+        locations = self._parse_travel_time_locations(xml_text)
+
+        ft = str(filter_text or "").strip().lower()
+        if ft:
+            locations = [(lid, name) for lid, name in locations if ft in lid.lower() or ft in name.lower()]
+
+        # stable ordering: name then id
+        locations.sort(key=lambda x: (x[1].lower(), x[0]))
+        return locations
 
     async def get_measurements_for_site(self, site_id: str) -> dict[str, float | int | None]:
         """Return the latest numeric values for a site (used by options flow previews)."""
@@ -89,7 +111,7 @@ class DatexClient:
         return self._Status(status="ok", is_closed=False)
 
     async def _get_text(self, url: str) -> str:
-        async with async_timeout.timeout(self._timeout):
+        async with asyncio.timeout(self._timeout):
             async with self._session.get(url, auth=self._auth) as resp:
                 resp.raise_for_status()
                 return await resp.text()
@@ -333,6 +355,118 @@ class DatexClient:
     async def fetch_situation(self) -> str:
         """Fetch raw GetSituation XML (used for credential verification)."""
         return await self._get_text(self._situation_url)
+
+    async def fetch_travel_time_data(self) -> str:
+        """Fetch raw GetTravelTimeData XML.
+
+        This is a single nationwide snapshot covering every predefined location, not
+        just the ones configured in Home Assistant, so it is fetched once per poll
+        and parsed for all locations at once (see parse_travel_time_data) rather than
+        re-fetched per configured item.
+        """
+        return await self._get_text(self._travel_time_data_url)
+
+    def parse_travel_time_data(self, xml_text: str) -> dict[str, dict[str, MeasuredValue]]:
+        """Parse GetTravelTimeData into a dict of location id -> measurement dict.
+
+        Each predefinedLocationReference id can carry up to two physicalQuantity
+        records: one with basicData xsi:type="TravelTimeData" (duration, free-flow
+        duration/speed, trend, type) and one with xsi:type="TrafficStatus" (a text
+        status enum). Both are merged into the same per-location dict.
+        """
+        root = ET.fromstring(xml_text)
+
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
+
+        def find_path(elem: ET.Element, path: str) -> ET.Element | None:
+            parts = path.split("/")
+            cur = elem
+            for part in parts:
+                found = None
+                for ch in list(cur):
+                    if _local(ch.tag) == part:
+                        found = ch
+                        break
+                if found is None:
+                    return None
+                cur = found
+            return cur
+
+        def _find_attr_xsi_type(elem: ET.Element) -> str:
+            for k, v in elem.attrib.items():
+                if k.endswith("}type") or k == "xsi:type":
+                    return v or ""
+            return ""
+
+        def _txt(node: ET.Element | None) -> str | None:
+            if node is None:
+                return None
+            t = (node.text or "").strip()
+            return t or None
+
+        def _float(node: ET.Element | None) -> float | None:
+            t = _txt(node)
+            if t is None:
+                return None
+            try:
+                return float(t)
+            except ValueError:
+                return None
+
+        results: dict[str, dict[str, MeasuredValue]] = {}
+
+        for pq in root.iter():
+            if _local(pq.tag) != "physicalQuantity":
+                continue
+
+            pertinent = find_path(pq, "pertinentLocation")
+            loc_ref = find_path(pertinent, "predefinedLocationReference") if pertinent is not None else None
+            location_id = (loc_ref.attrib.get("id") or "").strip() if loc_ref is not None else ""
+            if not location_id:
+                continue
+
+            basic = find_path(pq, "basicData")
+            if basic is None:
+                continue
+
+            kind = _find_attr_xsi_type(basic).split(":")[-1]
+            bucket = results.setdefault(location_id, {})
+
+            if kind == "TravelTimeData":
+                period_start = _txt(find_path(basic, "measurementOrCalculationTime/period/startOfPeriod"))
+                period_end = _txt(find_path(basic, "measurementOrCalculationTime/period/endOfPeriod"))
+                time_value = period_end or period_start
+
+                duration = _float(find_path(basic, "travelTime/duration"))
+                if duration is not None:
+                    bucket["travel_time"] = MeasuredValue(
+                        duration, time_value=time_value,
+                        period_start=period_start, period_end=period_end,
+                    )
+
+                free_flow_duration = _float(find_path(basic, "freeFlowTravelTime/duration"))
+                if free_flow_duration is not None:
+                    bucket["free_flow_travel_time"] = MeasuredValue(free_flow_duration, time_value=time_value)
+
+                free_flow_speed = _float(find_path(basic, "freeFlowSpeed/speed"))
+                if free_flow_speed is not None:
+                    bucket["free_flow_speed"] = MeasuredValue(free_flow_speed, time_value=time_value)
+
+                trend = _txt(find_path(basic, "travelTimeTrendType"))
+                if trend is not None:
+                    bucket["travel_time_trend"] = MeasuredValue(trend, time_value=time_value)
+
+                tt_type = _txt(find_path(basic, "travelTimeType"))
+                if tt_type is not None:
+                    bucket["travel_time_type"] = MeasuredValue(tt_type, time_value=time_value)
+
+            elif kind == "TrafficStatus":
+                status = _txt(find_path(basic, "trafficStatus/trafficStatusValue"))
+                if status is not None:
+                    bucket["traffic_status"] = MeasuredValue(status)
+
+        return results
 
     async def fetch_measured_weather_site(self, site_id: str) -> dict[str, MeasuredValue]:
         """Fetch and parse GetMeasuredWeatherData for one measurement site id."""
@@ -609,4 +743,44 @@ class DatexClient:
             sites[sid] = name or sid
 
         return list(sites.items())
+
+    def _parse_travel_time_locations(self, xml_text: str) -> list[tuple[str, str]]:
+        """Parse GetPredefinedTravelTimeLocations into (location_id, location_name).
+
+        Each <predefinedLocationReference id="..."> that carries a
+        predefinedLocationName is a usable travel-time location. The same element
+        name is used in GetTravelTimeData as a bare reference pointer (no name) -
+        those are skipped here since this parser only ever sees the locations feed.
+        """
+        root = ET.fromstring(xml_text)
+
+        def _local(tag: str) -> str:
+            return tag.split("}", 1)[-1] if "}" in tag else tag
+
+        locations: dict[str, str] = {}
+
+        for ref in root.iter():
+            if _local(ref.tag) != "predefinedLocationReference":
+                continue
+
+            lid = (ref.attrib.get("id") or "").strip()
+            if not lid:
+                continue
+
+            name: str | None = None
+            for ch in list(ref):
+                if _local(ch.tag) != "predefinedLocationName":
+                    continue
+                for sub in ch.iter():
+                    if _local(sub.tag) == "value" and (sub.text or "").strip():
+                        name = sub.text.strip()
+                        break
+                break
+
+            if not name:
+                continue
+
+            locations[lid] = name
+
+        return list(locations.items())
 

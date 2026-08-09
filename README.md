@@ -3,6 +3,7 @@
 Kobler Home Assistant mot **Statens vegvesen sine DATEX II (v3.x) data** og gir deg:
 
 - 🌦 **Vegværstasjoner** — temperatur, vind, luftfuktighet, føreforhold
+- 🚗 **Reisetider** mellom faste målepunkter — reisetid, forsinkelse og trafikkstatus
 - 🚧 **Trafikkhendelser innenfor en radius** fra et valgt punkt, f.eks. 20 km hjemmefra
 - 🗺 **Kartmarkører** som dukker opp og forsvinner med hendelsene
 - 📋 **Ferdig formatert hendelsestekst** til dashbord og varsler
@@ -81,6 +82,46 @@ og én gang uten tidsangivelse, som er nåverdien. Integrasjonen eksponerer begg
 `Vindkast` har `periode_start` og `periode_slutt` som attributter, så du ser hvilket
 vindu maksimum gjelder for. **Bruk `Vindkast` til varsling** — en enkeltavlesning er
 for tilfeldig til å utløse noe på.
+
+### 🚗 Reisetider
+
+Statens vegvesen publiserer reisetider mellom faste målepunkter for Oslo, Bergen,
+Stavanger, Kristiansand, Trondheim, E18 (Oslo–Aust-Agder) og E6 (Ås–Kolomoen),
+oppdatert hvert 5. minutt. Velg én eller flere strekninger når du legger til en
+reisetid-oppføring — flere strekninger slås automatisk sammen til én rute.
+
+| Sensor | Enhet | `device_class` | `state_class` |
+|---|---|---|---|
+| Reisetid | s | `duration` | `measurement` |
+| Reisetid uten kø (fri flyt) | s | `duration` | `measurement` |
+| Forsinkelse | s | `duration` | `measurement` |
+| Fri flyt-hastighet | km/h | `speed` | `measurement` |
+| Trafikkstatus | — | — | — |
+| Trend | — | — | — |
+| Beregningstype | — | — | — |
+
+**Forsinkelse** er utledet (reisetid minus reisetid uten kø) og finnes ikke direkte i
+DATEX-dataene. **Trafikkstatus**, **Trend** og **Beregningstype** er ren tekst rett fra
+DATEX (f.eks. `freeFlow`, `stable`, `estimated`) og vises uoversatt.
+
+Reisetid-sensoren har samme `sist_oppdatert`/`periode_start`/`periode_slutt`-attributter
+som værsensorene. Som med værstasjoner publiserer ikke alle strekninger alt — noen kan
+mangle trafikkstatus for eksempel.
+
+#### Flere strekninger i én rute
+
+Velger du flere strekninger i én reisetid-oppføring (f.eks. hele veien hjemmefra til
+jobb, delt opp i flere DATEX-målepunkter), slås de sammen slik:
+
+| Felt | Regel |
+|---|---|
+| Reisetid, Reisetid uten kø, Forsinkelse | Summeres |
+| Fri flyt-hastighet | Gjennomsnitt |
+| Trafikkstatus, Trend | Verste verdi blant strekningene, ikke flertall eller først valgte — én kødd strekning av fem skal ikke druknes ut |
+| Beregningstype | Vises kun når du har valgt nøyaktig én strekning — gir ikke mening å slå sammen |
+
+Visningsnavnet blir automatisk «første strekning + N andre» hvis du ikke skriver
+inn et eget navn selv.
 
 ### 🚧 Trafikkhendelser innenfor radius
 

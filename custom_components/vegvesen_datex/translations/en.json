@@ -30,6 +30,7 @@
         "menu_options": {
           "add_situation": "Add road segment (status via search)",
           "add_weather": "Add weather station (weather data)",
+          "add_travel_time": "Add travel time route",
           "edit_remove": "Edit / remove existing",
           "add_radius": "Add nearby area (radius)"
         }
@@ -43,11 +44,12 @@
         }
       },
       "site": {
-        "title": "Select weather station",
-        "description": "Filter and select the station you want to monitor.",
+        "title": "Select measurement point",
+        "description": "Filter and select the weather station you want to monitor, or one or more travel-time stretches - picking several combines them into one route (travel time, delay and free-flow travel time are summed, free-flow speed is averaged, and traffic status/trend show the worst stretch).",
         "data": {
           "site_filter": "Filter / search (optional)",
-          "site_id": "Station"
+          "site_id": "Item",
+          "segment_name": "Display name (optional, travel time only)"
         }
       },
       "entities": {
