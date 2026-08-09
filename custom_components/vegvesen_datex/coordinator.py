@@ -56,45 +56,69 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         data: dict[str, Any] = {"weather": {}, "situation": {}, "travel_time": {}}
 
-        try:
-            # WEATHER
-            for seg in self.segments:
-                if seg.get(CONF_ITEM_TYPE) != TYPE_WEATHER:
-                    continue
-                site_id = seg.get(CONF_SITE_ID)
-                seg_id = seg.get(CONF_SEGMENT_ID)
-                if not site_id or not seg_id:
-                    continue
-                values = await self.client.fetch_measured_weather_site(str(site_id))
-                data["weather"][str(site_id)] = values
+        # Each data source below is fetched independently and failures are caught
+        # locally: one bad fetch (e.g. the travel-time feed timing out) must not
+        # mark the whole update as failed, or every entity - weather, situations,
+        # radius incidents included - would go unavailable together even though
+        # their own data sources fetched fine. The whole update only fails if
+        # every source that was actually needed this cycle failed.
+        attempted = 0
+        succeeded = 0
 
-            # TRAVEL TIME: a single nationwide snapshot covering every predefined
-            # location, so it's fetched once per cycle and parsed for all locations
-            # at once rather than re-fetched per configured item (unlike weather
-            # above, which only ever needs one site per call).
-            if any(seg.get(CONF_ITEM_TYPE) == TYPE_TRAVEL_TIME for seg in self.segments):
+        # WEATHER
+        for seg in self.segments:
+            if seg.get(CONF_ITEM_TYPE) != TYPE_WEATHER:
+                continue
+            site_id = seg.get(CONF_SITE_ID)
+            seg_id = seg.get(CONF_SEGMENT_ID)
+            if not site_id or not seg_id:
+                continue
+            attempted += 1
+            try:
+                data["weather"][str(site_id)] = await self.client.fetch_measured_weather_site(str(site_id))
+                succeeded += 1
+            except Exception as err:
+                _LOGGER.warning("vegvesen_datex: weather fetch failed for site %s: %s", site_id, err)
+
+        # TRAVEL TIME: a single nationwide snapshot covering every predefined
+        # location, so it's fetched once per cycle and parsed for all locations
+        # at once rather than re-fetched per configured item (unlike weather
+        # above, which only ever needs one site per call).
+        all_travel_times: dict[str, Any] = {}
+        if any(seg.get(CONF_ITEM_TYPE) == TYPE_TRAVEL_TIME for seg in self.segments):
+            attempted += 1
+            try:
                 tt_xml = await self.client.fetch_travel_time_data()
                 all_travel_times = self.client.parse_travel_time_data(tt_xml)
-            else:
-                all_travel_times = {}
+                succeeded += 1
+            except Exception as err:
+                _LOGGER.warning("vegvesen_datex: travel time fetch failed: %s", err)
 
-            for seg in self.segments:
-                if seg.get(CONF_ITEM_TYPE) != TYPE_TRAVEL_TIME:
-                    continue
-                site_id = seg.get(CONF_SITE_ID)
-                if not site_id:
-                    continue
-                data["travel_time"][str(site_id)] = all_travel_times.get(str(site_id), {})
+        for seg in self.segments:
+            if seg.get(CONF_ITEM_TYPE) != TYPE_TRAVEL_TIME:
+                continue
+            site_id = seg.get(CONF_SITE_ID)
+            if not site_id:
+                continue
+            data["travel_time"][str(site_id)] = all_travel_times.get(str(site_id), {})
 
-            # SITUATION (fetch once if needed)
-            if any(seg.get(CONF_ITEM_TYPE) in (TYPE_SITUATION, TYPE_RADIUS) for seg in self.segments):
+        # SITUATION (fetch once if needed)
+        events: list[dict] = []
+        if any(seg.get(CONF_ITEM_TYPE) in (TYPE_SITUATION, TYPE_RADIUS) for seg in self.segments):
+            attempted += 1
+            try:
                 xml = await self.client.fetch_situation()
                 events = self.client.parse_situation_events(xml)
-            else:
-                events = []
+                succeeded += 1
+            except Exception as err:
+                _LOGGER.warning("vegvesen_datex: situation fetch failed: %s", err)
 
-            data["situation"]["_events"] = events
+        if attempted and not succeeded:
+            raise UpdateFailed("All DATEX data sources failed this update - see warnings above")
 
+        data["situation"]["_events"] = events
+
+        try:
             for seg in self.segments:
                 seg_id = seg.get(CONF_SEGMENT_ID)
                 if not seg_id:
