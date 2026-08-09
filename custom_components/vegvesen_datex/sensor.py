@@ -59,7 +59,7 @@ from .const import (
     ATTR_PERIOD_START,
     ATTR_PERIOD_END,
 )
-from .coordinator import DatexCoordinator
+from .coordinator import DatexCoordinator, travel_time_bucket_key
 from .datex_client import MeasuredValue
 
 
@@ -121,7 +121,11 @@ async def async_setup_entry(
                 entities.append(_W(coordinator, site_id, site_name, "road_surface_snow_depth", "Snødybde", "m", None, state_class=_M))
 
         elif item_type == TYPE_TRAVEL_TIME:
-            site_id = str(seg.get(CONF_SITE_ID) or seg_id)
+            # A single stretch keys off its own DATEX location id; several
+            # stretches accumulated together key off the segment's own id (see
+            # coordinator.travel_time_bucket_key - this must match how the
+            # coordinator stores data["travel_time"], or lookups below miss).
+            site_id = travel_time_bucket_key(seg) or str(seg_id)
             site_name = seg.get(CONF_SITE_NAME) or seg_name
 
             def _T(key, name_suffix, unit, device_class, state_class=None, include_period=False):

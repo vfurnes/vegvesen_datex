@@ -87,8 +87,8 @@ for tilfeldig til å utløse noe på.
 
 Statens vegvesen publiserer reisetider mellom faste målepunkter for Oslo, Bergen,
 Stavanger, Kristiansand, Trondheim, E18 (Oslo–Aust-Agder) og E6 (Ås–Kolomoen),
-oppdatert hvert 5. minutt. Velg ett målepunkt (en strekning) om gangen — legg til
-flere oppføringer for flere strekninger.
+oppdatert hvert 5. minutt. Velg én eller flere strekninger når du legger til en
+reisetid-oppføring — flere strekninger slås automatisk sammen til én rute.
 
 | Sensor | Enhet | `device_class` | `state_class` |
 |---|---|---|---|
@@ -107,6 +107,21 @@ DATEX (f.eks. `freeFlow`, `stable`, `estimated`) og vises uoversatt.
 Reisetid-sensoren har samme `sist_oppdatert`/`periode_start`/`periode_slutt`-attributter
 som værsensorene. Som med værstasjoner publiserer ikke alle strekninger alt — noen kan
 mangle trafikkstatus for eksempel.
+
+#### Flere strekninger i én rute
+
+Velger du flere strekninger i én reisetid-oppføring (f.eks. hele veien hjemmefra til
+jobb, delt opp i flere DATEX-målepunkter), slås de sammen slik:
+
+| Felt | Regel |
+|---|---|
+| Reisetid, Reisetid uten kø, Forsinkelse | Summeres |
+| Fri flyt-hastighet | Gjennomsnitt |
+| Trafikkstatus, Trend | Verste verdi blant strekningene, ikke flertall eller først valgte — én kødd strekning av fem skal ikke druknes ut |
+| Beregningstype | Vises kun når du har valgt nøyaktig én strekning — gir ikke mening å slå sammen |
+
+Visningsnavnet blir automatisk «første strekning + N andre» hvis du ikke skriver
+inn et eget navn selv.
 
 ### 🚧 Trafikkhendelser innenfor radius
 

@@ -14,16 +14,32 @@ from .const import (
     CONF_SEGMENT_ID,
     CONF_SEGMENT_QUERY,
     CONF_SITE_ID,
+    CONF_SITE_IDS,
     CONF_RADIUS_ZONE,
     CONF_RADIUS_KM,
     TYPE_WEATHER,
     TYPE_SITUATION,
     TYPE_RADIUS,
     TYPE_TRAVEL_TIME,
+    ENTITY_TRAVEL_TIME,
+    ENTITY_FREE_FLOW_TRAVEL_TIME,
+    ENTITY_FREE_FLOW_SPEED,
+    ENTITY_TRAFFIC_STATUS,
+    ENTITY_TRAVEL_TIME_TREND,
+    ENTITY_TRAVEL_TIME_TYPE,
 )
-from .datex_client import DatexClient
+from .datex_client import DatexClient, MeasuredValue
 
 _LOGGER = logging.getLogger(__name__)
+
+# Worst-to-best severity for "respect outliers" aggregation, taken from the real
+# DATEX II enums (DATEXII_3_RoadTrafficData.xsd: TrafficStatusEnum /
+# TravelTimeTrendTypeEnum) rather than invented - the aggregate should reflect the
+# single worst stretch, not a majority vote or the first value seen.
+_TRAFFIC_STATUS_SEVERITY = [
+    "stationary", "queuing", "heavy", "slow", "unspecifiedAbnormal", "other", "freeFlow", "unknown",
+]
+_TREND_SEVERITY = ["increasing", "decreasing", "stable"]
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -33,6 +49,108 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dl = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dl / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
+
+
+def resolve_travel_time_site_ids(seg: dict[str, Any]) -> list[str]:
+    """Location ids for a travel_time segment.
+
+    CONF_SITE_IDS (list) is the current shape, written whenever an item is
+    saved through the options flow. CONF_SITE_ID (single) is what the
+    single-stretch-only version of this feature wrote, kept here as a fallback
+    for anything saved before accumulation existed.
+    """
+    ids = seg.get(CONF_SITE_IDS)
+    if ids:
+        return [str(i) for i in ids]
+    single = seg.get(CONF_SITE_ID)
+    return [str(single)] if single else []
+
+
+def travel_time_bucket_key(seg: dict[str, Any]) -> str | None:
+    """The key data["travel_time"] (and the entities' device) is stored under.
+
+    A single stretch keeps using its own DATEX location id, so existing
+    single-stretch items keep their current entity/device identifiers exactly
+    as before this feature existed. Several stretches combined have no one
+    canonical id to key off, so they use the segment's own id instead.
+    """
+    site_ids = resolve_travel_time_site_ids(seg)
+    if not site_ids:
+        return None
+    if len(site_ids) == 1:
+        return site_ids[0]
+    return str(seg.get(CONF_SEGMENT_ID) or site_ids[0])
+
+
+def _worst(values: list[str], severity: list[str]) -> str | None:
+    present = [v for v in values if v]
+    if not present:
+        return None
+    return min(present, key=lambda v: severity.index(v) if v in severity else len(severity))
+
+
+def _aggregate_travel_time(buckets: list[dict[str, MeasuredValue]]) -> dict[str, MeasuredValue]:
+    """Combine one or more stretches' travel-time data into a single bucket.
+
+    Duration fields (travel time, free-flow travel time) add up, since
+    consecutive stretches make one longer journey. Free-flow speed is
+    averaged. Traffic status and trend pick the single worst value present
+    (see the severity lists above) rather than a majority vote, so one bad
+    stretch out of several isn't smoothed away. Fed a single bucket, this
+    reproduces it unchanged - aggregation is a strict generalization of the
+    single-stretch case, not a special case of it.
+    """
+
+    def _sum(key: str) -> float | None:
+        vals = [b[key].value for b in buckets if b.get(key) is not None and b[key].value is not None]
+        return sum(vals) if vals else None
+
+    def _avg(key: str) -> float | None:
+        vals = [b[key].value for b in buckets if b.get(key) is not None and b[key].value is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    times = [b[ENTITY_TRAVEL_TIME].time_value for b in buckets if b.get(ENTITY_TRAVEL_TIME) and b[ENTITY_TRAVEL_TIME].time_value]
+    time_value = max(times) if times else None
+    starts = [b[ENTITY_TRAVEL_TIME].period_start for b in buckets if b.get(ENTITY_TRAVEL_TIME) and b[ENTITY_TRAVEL_TIME].period_start]
+    ends = [b[ENTITY_TRAVEL_TIME].period_end for b in buckets if b.get(ENTITY_TRAVEL_TIME) and b[ENTITY_TRAVEL_TIME].period_end]
+    period_start = min(starts) if starts else None
+    period_end = max(ends) if ends else None
+
+    out: dict[str, MeasuredValue] = {}
+
+    travel_time = _sum(ENTITY_TRAVEL_TIME)
+    if travel_time is not None:
+        out[ENTITY_TRAVEL_TIME] = MeasuredValue(
+            travel_time, time_value=time_value, period_start=period_start, period_end=period_end
+        )
+
+    free_flow_travel_time = _sum(ENTITY_FREE_FLOW_TRAVEL_TIME)
+    if free_flow_travel_time is not None:
+        out[ENTITY_FREE_FLOW_TRAVEL_TIME] = MeasuredValue(free_flow_travel_time, time_value=time_value)
+
+    free_flow_speed = _avg(ENTITY_FREE_FLOW_SPEED)
+    if free_flow_speed is not None:
+        out[ENTITY_FREE_FLOW_SPEED] = MeasuredValue(free_flow_speed, time_value=time_value)
+
+    status = _worst(
+        [b[ENTITY_TRAFFIC_STATUS].value for b in buckets if b.get(ENTITY_TRAFFIC_STATUS)], _TRAFFIC_STATUS_SEVERITY
+    )
+    if status is not None:
+        out[ENTITY_TRAFFIC_STATUS] = MeasuredValue(status, time_value=time_value)
+
+    trend = _worst(
+        [b[ENTITY_TRAVEL_TIME_TREND].value for b in buckets if b.get(ENTITY_TRAVEL_TIME_TREND)], _TREND_SEVERITY
+    )
+    if trend is not None:
+        out[ENTITY_TRAVEL_TIME_TREND] = MeasuredValue(trend, time_value=time_value)
+
+    # A calculation-method tag, not a value that can be summed/averaged/
+    # outlier-picked - it doesn't mean anything once stretches are combined, so
+    # it's only carried through for a genuinely single stretch.
+    if len(buckets) == 1 and buckets[0].get(ENTITY_TRAVEL_TIME_TYPE) is not None:
+        out[ENTITY_TRAVEL_TIME_TYPE] = buckets[0][ENTITY_TRAVEL_TIME_TYPE]
+
+    return out
 
 
 class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -97,10 +215,12 @@ class DatexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for seg in self.segments:
             if seg.get(CONF_ITEM_TYPE) != TYPE_TRAVEL_TIME:
                 continue
-            site_id = seg.get(CONF_SITE_ID)
-            if not site_id:
+            key = travel_time_bucket_key(seg)
+            if not key:
                 continue
-            data["travel_time"][str(site_id)] = all_travel_times.get(str(site_id), {})
+            site_ids = resolve_travel_time_site_ids(seg)
+            buckets = [all_travel_times.get(sid, {}) for sid in site_ids]
+            data["travel_time"][key] = _aggregate_travel_time(buckets)
 
         # SITUATION (fetch once if needed)
         events: list[dict] = []

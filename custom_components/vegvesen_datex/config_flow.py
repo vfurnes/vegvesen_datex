@@ -12,6 +12,8 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 from homeassistant.helpers import device_registry as dr
 
+from .coordinator import travel_time_bucket_key
+
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -29,6 +31,7 @@ from .const import (
     CONF_SEGMENT_QUERY,
     CONF_SEGMENT_ENTITIES,
     CONF_SITE_ID,
+    CONF_SITE_IDS,
     CONF_SITE_NAME,
     CONF_SITE_FILTER,
     CONF_KNOWN_STRETCH,
@@ -126,6 +129,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         self._site_options: dict[str, str] = {}
         self._picked_site_id: str | None = None
         self._picked_site_name: str | None = None
+        self._picked_site_ids: list[str] = []
+        self._picked_site_names: list[str] = []
 
         self._radius_zone: str = "zone.home"
         self._radius_km: int = 20
@@ -204,7 +209,12 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         self._segment_query = seg.get(CONF_SEGMENT_QUERY) or ""
         self._selected_entities = list(seg.get(CONF_SEGMENT_ENTITIES) or [])
 
-        if self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME):
+        if self._adding_type == TYPE_TRAVEL_TIME:
+            ids = seg.get(CONF_SITE_IDS)
+            self._picked_site_ids = list(ids) if ids else ([seg[CONF_SITE_ID]] if seg.get(CONF_SITE_ID) else [])
+            return await self.async_step_site()
+
+        if self._adding_type == TYPE_WEATHER:
             self._picked_site_id = seg.get(CONF_SITE_ID)
             self._picked_site_name = seg.get(CONF_SITE_NAME) or ""
             return await self.async_step_site()
@@ -260,19 +270,23 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_site()
 
     async def async_step_site(self, user_input=None) -> FlowResult:
-        """Filter + pick a predefined location: a weather station or a travel-time route.
+        """Filter + pick a predefined location: a weather station, or one or more
+        travel-time stretches (picking several accumulates them into one route -
+        see coordinator._aggregate_travel_time).
 
         Shared between TYPE_WEATHER and TYPE_TRAVEL_TIME - self._adding_type (set by
-        the caller before entering this step) decides which DATEX table to query.
+        the caller before entering this step) decides which DATEX table to query
+        and whether the picker is single- or multi-select.
         """
         errors: dict[str, str] = {}
+        is_travel_time = self._adding_type == TYPE_TRAVEL_TIME
 
         if user_input is not None:
             self._site_filter = str(user_input.get(CONF_SITE_FILTER) or "").strip()
 
         try:
             client = DatexClient(self.hass, self.entry.data[CONF_USERNAME], self.entry.data[CONF_PASSWORD])
-            if self._adding_type == TYPE_TRAVEL_TIME:
+            if is_travel_time:
                 sites = await client.list_travel_time_locations(self._site_filter)
             else:
                 sites = await client.list_sites(self._site_filter)
@@ -291,22 +305,39 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         }
 
         if self._site_options:
-            # Placeholder øverst for å hindre autovalg av første oppføring
-            select_options = [
-                selector.SelectOptionDict(value="", label="— Velg —"),
-                *[
+            if is_travel_time:
+                # Multiple picks accumulate into one route, so no "— Velg —"
+                # placeholder is needed here (unlike the single-select dropdown
+                # below, multi-select doesn't auto-select anything on its own).
+                select_options = [
                     selector.SelectOptionDict(value=str(sid), label=str(name))
                     for sid, name in self._site_options.items()
-                ],
-            ]
-
-            # Viktig: Optional her! Vi vil kunne trykke "Send inn" kun for å filtrere lista.
-            schema_dict[vol.Optional(CONF_SITE_ID, default="")] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=select_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ]
+                schema_dict[vol.Optional(CONF_SITE_ID, default=list(self._picked_site_ids))] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=select_options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
                 )
-            )
+                schema_dict[vol.Optional(CONF_SEGMENT_NAME, default=self._segment_name)] = str
+            else:
+                # Placeholder øverst for å hindre autovalg av første oppføring
+                select_options = [
+                    selector.SelectOptionDict(value="", label="— Velg —"),
+                    *[
+                        selector.SelectOptionDict(value=str(sid), label=str(name))
+                        for sid, name in self._site_options.items()
+                    ],
+                ]
+
+                # Viktig: Optional her! Vi vil kunne trykke "Send inn" kun for å filtrere lista.
+                schema_dict[vol.Optional(CONF_SITE_ID, default="")] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=select_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
         else:
             schema_dict[vol.Optional(CONF_SITE_ID)] = str
             errors["base"] = errors.get("base") or "no_sites"
@@ -314,6 +345,16 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         # Første visning, eller ingen site valgt: vis skjema (ev. etter filtrering)
         if user_input is None or CONF_SITE_ID not in user_input:
             return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
+
+        if is_travel_time:
+            site_ids = [str(v).strip() for v in (user_input.get(CONF_SITE_ID) or []) if str(v).strip()]
+            if not site_ids:
+                return self.async_show_form(step_id="site", data_schema=vol.Schema(schema_dict), errors=errors)
+
+            self._picked_site_ids = site_ids
+            self._picked_site_names = [self._site_options.get(sid) or sid for sid in site_ids]
+            self._segment_name = str(user_input.get(CONF_SEGMENT_NAME) or "").strip()
+            return await self.async_step_entities()
 
         site_id = str(user_input.get(CONF_SITE_ID) or "").strip()
 
@@ -414,9 +455,9 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
                 ENTITY_TRAVEL_TIME_DELAY: "Forsinkelse (vs. fri flyt)",
                 ENTITY_FREE_FLOW_TRAVEL_TIME: "Reisetid uten kø (fri flyt)",
                 ENTITY_FREE_FLOW_SPEED: "Fri flyt-hastighet",
-                ENTITY_TRAFFIC_STATUS: "Trafikkstatus",
-                ENTITY_TRAVEL_TIME_TREND: "Trend",
-                ENTITY_TRAVEL_TIME_TYPE: "Beregningstype",
+                ENTITY_TRAFFIC_STATUS: "Trafikkstatus (verste strekning ved flere valgt)",
+                ENTITY_TRAVEL_TIME_TREND: "Trend (verste strekning ved flere valgt)",
+                ENTITY_TRAVEL_TIME_TYPE: "Beregningstype (kun når én strekning er valgt)",
             }
             defaults = [ENTITY_TRAVEL_TIME, ENTITY_TRAVEL_TIME_DELAY]
             return {"options": options, "defaults": defaults}
@@ -441,12 +482,21 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SEGMENT_ENTITIES: list(self._selected_entities or []),
         }
 
-        if (self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME)) and (not self._segment_name):
-            # Bruk stasjonens/strekningens navn som segment-navn hvis ikke brukeren har satt eget
-            self._segment_name = self._picked_site_name or self._picked_site_id or "DATEX"
+        if self._adding_type == TYPE_TRAVEL_TIME:
+            if not self._segment_name:
+                # Auto-navn: første strekning, pluss "+ N andre" ved flere valgt.
+                names = self._picked_site_names
+                self._segment_name = names[0] if names else "DATEX"
+                if len(names) > 1:
+                    self._segment_name += f" + {len(names) - 1} andre"
             item[CONF_SEGMENT_NAME] = self._segment_name
-
-        if self._adding_type in (TYPE_WEATHER, TYPE_TRAVEL_TIME):
+            item[CONF_SITE_IDS] = list(self._picked_site_ids)
+            item[CONF_SITE_NAME] = self._segment_name
+        elif self._adding_type == TYPE_WEATHER:
+            if not self._segment_name:
+                # Bruk målestasjonens navn som segment-navn hvis ikke brukeren har satt eget
+                self._segment_name = self._picked_site_name or self._picked_site_id or "DATEX"
+                item[CONF_SEGMENT_NAME] = self._segment_name
             item[CONF_SITE_ID] = self._picked_site_id
             item[CONF_SITE_NAME] = self._picked_site_name or self._picked_site_id
         elif self._adding_type == TYPE_RADIUS:
@@ -486,7 +536,8 @@ class VegvesenDatexOptionsFlowHandler(config_entries.OptionsFlow):
         if item_type == TYPE_WEATHER:
             keys = [f"weather_site_{seg.get(CONF_SITE_ID)}"]
         elif item_type == TYPE_TRAVEL_TIME:
-            keys = [f"travel_time_{seg.get(CONF_SITE_ID)}"]
+            bucket_key = travel_time_bucket_key(seg)
+            keys = [f"travel_time_{bucket_key}"] if bucket_key else []
         elif item_type == TYPE_RADIUS:
             # Status/message/binary sensors live on "situation_<id>";
             # geo_location incident markers live on their own "radius_<id>" device.
